@@ -1,0 +1,62 @@
+# Node模块
+node_modules
+npm-debug.log
+yarn-error.log
+package-lock.json
+yarn.lock
+
+# 构建产物
+dist
+build
+.vite
+
+# 开发文件
+*.log
+.DS_Store
+.idea
+.vscode
+*.swp
+*.swo
+*~
+
+# Git相关
+.git
+.gitignore
+.gitattributes
+
+# 测试相关
+coverage
+.nyc_output
+*.test.ts
+*.test.tsx
+*.spec.ts
+*.spec.tsx
+
+# 环境变量
+.env
+.env.local
+.env.*.local
+
+# 文档
+README.md
+CONTRIBUTING.md
+CODE_OF_CONDUCT.md
+LICENSE
+*.md
+
+# CI/CD
+.github
+.gitlab-ci.yml
+.travis.yml
+
+# Docker相关
+Dockerfile
+docker-compose.yml
+.dockerignore
+
+# 其他
+tmp
+temp
+.cache
+
+

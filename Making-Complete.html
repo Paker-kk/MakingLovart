@@ -1,0 +1,1273 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Making - 完整功能版</title>
+  
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- React Import Map -->
+  <script type="importmap">
+  {
+    "imports": {
+      "react": "https://esm.sh/react@18.2.0",
+      "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
+      "react-dom": "https://esm.sh/react-dom@18.2.0"
+    }
+  }
+  </script>
+  
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; padding: 0; overflow: hidden; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif; }
+    #root { width: 100vw; height: 100vh; }
+    
+    /* 自定义CSS变量 */
+    :root {
+      --ui-bg-color: rgba(255, 255, 255, 0.9);
+      --button-bg-color: rgba(17, 24, 39, 1);
+    }
+    
+    /* 滚动条样式 */
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb { background: #888; border-radius: 4px; }
+    ::-webkit-scrollbar-thumb:hover { background: #555; }
+    
+    /* 动画 */
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+    @keyframes slideInRight { from { transform: translateX(100%); } to { transform: translateX(0); } }
+    @keyframes slideInLeft { from { transform: translateX(-100%); } to { transform: translateX(0); } }
+    
+    .animate-spin { animation: spin 1s linear infinite; }
+    .animate-fadeIn { animation: fadeIn 0.3s ease-out; }
+    .animate-slideInRight { animation: slideInRight 0.35s cubic-bezier(0.4, 0, 0.2, 1); }
+    .animate-slideInLeft { animation: slideInLeft 0.35s cubic-bezier(0.4, 0, 0.2, 1); }
+    
+    /* 传送门动画效果 */
+    .portal-animation {
+      transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s ease-out;
+      transform-origin: left center;
+    }
+    .portal-minimized {
+      transform: scaleX(0.005);
+      opacity: 0;
+      pointer-events: none;
+    }
+    .portal-expanded {
+      transform: scaleX(1);
+      opacity: 1;
+      pointer-events: auto;
+    }
+    
+    /* 右侧面板传送门 */
+    .portal-right {
+      transform-origin: right center;
+    }
+    .portal-right.portal-minimized {
+      transform: scaleX(0.005);
+    }
+    
+    /* 选择框样式 */
+    .selection-rect {
+      stroke: #3b82f6;
+      stroke-width: 2;
+      fill: rgba(59, 130, 246, 0.1);
+      stroke-dasharray: 5, 5;
+      animation: dash 0.5s linear infinite;
+    }
+    
+    @keyframes dash {
+      to { stroke-dashoffset: -10; }
+    }
+    
+    /* 加载动画 */
+    .loading-spinner {
+      border: 3px solid #f3f3f3;
+      border-top: 3px solid #3498db;
+      border-radius: 50%;
+      width: 20px;
+      height: 20px;
+      animation: spin 1s linear infinite;
+    }
+    
+    /* 画布样式 */
+    .canvas-container {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      cursor: default;
+    }
+    
+    /* 工具按钮激活状态 */
+    .tool-active {
+      background-color: rgba(229, 231, 235, 1) !important;
+      color: rgba(55, 65, 81, 1) !important;
+    }
+    
+    /* 遮罩层 */
+    .overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, 0.1);
+      -webkit-backdrop-filter: blur(4px);
+      backdrop-filter: blur(4px);
+      z-index: 40;
+    }
+  </style>
+</head>
+
+<body>
+  <div id="root"></div>
+  
+  <script type="module">
+    import React from 'react';
+    import ReactDOM from 'react-dom/client';
+    
+    const { useState, useEffect, useRef, useMemo, useCallback, memo } = React;
+    const e = React.createElement;
+    
+    // ============================================
+    // 工具类型和常量
+    // ============================================
+    
+    const TOOLS = ['select', 'pan', 'draw', 'erase', 'rectangle', 'circle', 'triangle', 'text', 'arrow', 'highlighter', 'lasso', 'line'];
+    const ASSET_CATEGORIES = ['character', 'scene', 'prop'];
+    
+    // ============================================
+    // IndexedDB 存储服务
+    // ============================================
+    
+    class AssetStorageService {
+      constructor() {
+        this.dbName = 'MakingAssetLibrary';
+        this.version = 1;
+        this.db = null;
+      }
+      
+      async init() {
+        if (this.db) return this.db;
+        return new Promise((resolve, reject) => {
+          const request = indexedDB.open(this.dbName, this.version);
+          request.onerror = () => reject(request.error);
+          request.onsuccess = () => {
+            this.db = request.result;
+            resolve(this.db);
+          };
+          request.onupgradeneeded = (event) => {
+            const db = event.target.result;
+            if (!db.objectStoreNames.contains('assets')) {
+              const store = db.createObjectStore('assets', { keyPath: 'id' });
+              store.createIndex('category', 'category', { unique: false });
+              store.createIndex('createdAt', 'createdAt', { unique: false });
+            }
+          };
+        });
+      }
+      
+      async addAsset(asset) {
+        await this.init();
+        return new Promise((resolve, reject) => {
+          const tx = this.db.transaction(['assets'], 'readwrite');
+          const store = tx.objectStore('assets');
+          const request = store.add(asset);
+          request.onsuccess = () => resolve(asset);
+          request.onerror = () => reject(request.error);
+        });
+      }
+      
+      async getAssetsByCategory(category) {
+        await this.init();
+        return new Promise((resolve, reject) => {
+          const tx = this.db.transaction(['assets'], 'readonly');
+          const store = tx.objectStore('assets');
+          const index = store.index('category');
+          const request = index.getAll(category);
+          request.onsuccess = () => resolve(request.result || []);
+          request.onerror = () => reject(request.error);
+        });
+      }
+      
+      async deleteAsset(id) {
+        await this.init();
+        return new Promise((resolve, reject) => {
+          const tx = this.db.transaction(['assets'], 'readwrite');
+          const store = tx.objectStore('assets');
+          const request = store.delete(id);
+          request.onsuccess = () => resolve();
+          request.onerror = () => reject(request.error);
+        });
+      }
+      
+      async getAllAssets() {
+        await this.init();
+        return new Promise((resolve, reject) => {
+          const tx = this.db.transaction(['assets'], 'readonly');
+          const store = tx.objectStore('assets');
+          const request = store.getAll();
+          request.onsuccess = () => resolve(request.result || []);
+          request.onerror = () => reject(request.error);
+        });
+      }
+    }
+    
+    const assetStorage = new AssetStorageService();
+    
+    // ============================================
+    // 翻译数据（完整版）
+    // ============================================
+    
+    const translations = {
+      zh: {
+        toolbar: {
+          undo: '撤销', redo: '重做', select: '选择', pan: '平移', shapes: '形状',
+          drawingTools: '绘图工具', draw: '画笔', highlighter: '局部重绘', lasso: '套索',
+          rectangle: '矩形', circle: '圆形', triangle: '三角形', arrow: '箭头', line: '直线',
+          text: '文本', erase: '橡皮', strokeColor: '颜色', strokeWidth: '粗细',
+          upload: '上传', settings: '设置', layers: '图层',
+          crop: { title: '裁剪图片', cancel: '取消', confirm: '确认' }
+        },
+        promptBar: {
+          placeholderDefault: '描述你想生成的图片...',
+          placeholderDefaultVideo: '描述你想生成的视频...',
+          placeholderSingle: '描述要做的修改，或选择快捷效果...',
+          placeholderMultiple: (n) => \`已选择 \${n} 个元素，描述结果...\`,
+          generate: '生成', imageMode: '图片', videoMode: '视频',
+          aspectRatioHorizontal: '横向 (16:9)', aspectRatioVertical: '纵向 (9:16)'
+        },
+        inspiration: {
+          title: '灵感库', character: '角色库', scene: '场景库', prop: '道具库',
+          upload: '上传素材', empty: '暂无素材，点击上传', delete: '删除', rename: '重命名'
+        },
+        layers: { title: '图层', noLayers: '暂无图层' },
+        settings: {
+          title: '设置', language: '语言', uiTheme: 'UI主题', color: '颜色',
+          opacity: '不透明度', actionButtonsTheme: '功能按钮', canvas: '画布',
+          backgroundColor: '背景颜色', mouseWheel: '鼠标滚轮', zoom: '缩放', scroll: '滚动'
+        },
+        quickPrompts: [
+          { name: '图片变手办', value: '将这张照片变成一个人物手办...' },
+          { name: '改变人物视角', value: '将相机角度改为高角度自拍视角...' },
+          { name: '组合对象', value: '把它们组合起来' },
+          { name: '高清修复', value: '将此图片增强为高分辨率' },
+          { name: '图片转线稿', value: '变成线稿手绘图' },
+          { name: '生成角色设定', value: '为我生成人物的角色设定...' },
+        ],
+        myEffects: {
+          title: '我的效果', saveEffectTooltip: '保存为自定义效果',
+          saveEffectPrompt: '输入效果名称：', deleteEffectTooltip: '删除',
+          noEffects: '暂无自定义效果', defaultName: '我的效果'
+        },
+        contextMenu: {
+          copy: '复制', download: '下载', crop: '裁剪', delete: '删除',
+          fillColor: '填充颜色', fontColor: '字体颜色', fontSize: '字号',
+          bringForward: '上移一层', sendBackward: '下移一层'
+        }
+      },
+      en: {
+        toolbar: {
+          undo: 'Undo', redo: 'Redo', select: 'Select', pan: 'Pan', shapes: 'Shapes',
+          drawingTools: 'Drawing Tools', draw: 'Pencil', highlighter: 'Inpaint', lasso: 'Lasso',
+          rectangle: 'Rectangle', circle: 'Circle', triangle: 'Triangle', arrow: 'Arrow', line: 'Line',
+          text: 'Text', erase: 'Erase', strokeColor: 'Color', strokeWidth: 'Width',
+          upload: 'Upload', settings: 'Settings', layers: 'Layers',
+          crop: { title: 'Crop Image', cancel: 'Cancel', confirm: 'Confirm' }
+        },
+        promptBar: {
+          placeholderDefault: 'Describe an image...',
+          placeholderDefaultVideo: 'Describe a video...',
+          placeholderSingle: 'Describe changes or select an effect...',
+          placeholderMultiple: (n) => \`Using \${n} elements as context...\`,
+          generate: 'Generate', imageMode: 'Image', videoMode: 'Video',
+          aspectRatioHorizontal: 'Horizontal (16:9)', aspectRatioVertical: 'Vertical (9:16)'
+        },
+        inspiration: {
+          title: 'Inspiration', character: 'Characters', scene: 'Scenes', prop: 'Props',
+          upload: 'Upload', empty: 'No assets yet', delete: 'Delete', rename: 'Rename'
+        },
+        layers: { title: 'Layers', noLayers: 'No layers yet' },
+        settings: {
+          title: 'Settings', language: 'Language', uiTheme: 'UI Theme', color: 'Color',
+          opacity: 'Opacity', actionButtonsTheme: 'Action Buttons', canvas: 'Canvas',
+          backgroundColor: 'Background Color', mouseWheel: 'Mouse Wheel', zoom: 'Zoom', scroll: 'Scroll'
+        },
+        quickPrompts: [
+          { name: 'Image to Figure', value: 'Turn this photo into a character figure...' },
+          { name: 'Change Perspective', value: 'Change the camera angle...' },
+          { name: 'Combine Objects', value: 'Combine them together' },
+          { name: 'High-Res Restore', value: 'Enhance this image to high resolution' },
+          { name: 'To Line Art', value: 'Turn into line art sketch' },
+          { name: 'Character Sheet', value: 'Generate a character design sheet...' },
+        ],
+        myEffects: {
+          title: 'My Effects', saveEffectTooltip: 'Save as custom effect',
+          saveEffectPrompt: 'Enter effect name:', deleteEffectTooltip: 'Delete',
+          noEffects: 'No custom effects yet', defaultName: 'My Effect'
+        },
+        contextMenu: {
+          copy: 'Copy', download: 'Download', crop: 'Crop', delete: 'Delete',
+          fillColor: 'Fill Color', fontColor: 'Font Color', fontSize: 'Font Size',
+          bringForward: 'Bring Forward', sendBackward: 'Send Backward'
+        }
+      }
+    };
+    
+    // ============================================
+    // API 配置
+    // ============================================
+    
+    const API_KEY = ""; // 留空以便在Gemini Canvas中自动注入
+    const BASE_API_URL = "https://generativelanguage.googleapis.com/v1beta/models/";
+    const IMAGE_MODEL = "gemini-2.5-flash-image-preview";
+    
+    // ============================================
+    // 工具函数
+    // ============================================
+    
+    const generateId = () => \`id_\${Date.now()}_\${Math.random().toString(36).substr(2, 9)}\`;
+    
+    const fileToDataUrl = (file) => {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = (e) => resolve(e.target.result);
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+    };
+    
+    // ============================================
+    // Gemini API 调用函数
+    // ============================================
+    
+    async function callGeminiAPI(model, payload) {
+      const url = \`\${BASE_API_URL}\${model}:generateContent?key=\${API_KEY}\`;
+      let retries = 3;
+      let delay = 1000;
+      
+      while (retries > 0) {
+        try {
+          const response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+          
+          if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(\`HTTP error! status: \${response.status}, body: \${errorText}\`);
+          }
+          
+          return await response.json();
+        } catch (error) {
+          console.error("API call failed:", error);
+          retries--;
+          if (retries === 0) {
+            throw error;
+          }
+          await new Promise(res => setTimeout(res, delay));
+          delay *= 2;
+        }
+      }
+    }
+    
+    async function generateImage(prompt, referenceImages = []) {
+      if (!API_KEY) {
+        throw new Error('请配置 Gemini API Key');
+      }
+      
+      let retries = 3;
+      while (retries > 0) {
+        try {
+          const parts = [{ text: prompt }];
+          
+          // 添加参考图像
+          for (const refImg of referenceImages) {
+            if (refImg && refImg.startsWith('data:image')) {
+              const base64Data = refImg.split(',')[1];
+              const mimeType = refImg.match(/data:(image\/[a-z]+);/)?.[1] || 'image/png';
+              parts.push({
+                inlineData: {
+                  mimeType,
+                  data: base64Data
+                }
+              });
+            }
+          }
+          
+          const payload = {
+            contents: [{ parts }],
+            generationConfig: {
+              responseModalities: ['IMAGE']
+            }
+          };
+          
+          const result = await callGeminiAPI(IMAGE_MODEL, payload);
+          const base64Data = result?.candidates?.[0]?.content?.parts?.find(p => p.inlineData)?.inlineData?.data;
+          
+          if (base64Data) {
+            return \`data:image/png;base64,\${base64Data}\`;
+          }
+          
+          console.warn(\`图像生成失败，正在重试... (\${4 - retries}/3)\`);
+          retries--;
+          if (retries > 0) {
+            await new Promise(res => setTimeout(res, 1500));
+          }
+        } catch (error) {
+          console.error(\`生成图像时出错 (剩余重试次数: \${retries - 1}):\`, error);
+          retries--;
+          if (retries === 0) {
+            throw error;
+          }
+          await new Promise(res => setTimeout(res, 1500));
+        }
+      }
+      
+      throw new Error('图像生成失败，已重试3次');
+    }
+    
+    // ============================================
+    // 图标组件
+    // ============================================
+    
+    const Icon = ({ name, size = 20, className = '' }) => {
+      const icons = {
+        select: 'M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z M13 13l6 6',
+        pan: 'M5 9l-3 3 3 3M9 5l3-3 3 3M15 19l-3 3-3-3M19 9l3 3-3 3M2 12h20M12 2v20',
+        draw: 'M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z M15 5l4 4',
+        rectangle: 'M3 3h18v18H3z',
+        circle: 'M12 22c5.523 0 10-4.477 10-10S17.523 2 12 2 2 6.477 2 12s4.477 10 10 10z',
+        text: 'M4 7V4h16v3M9 20h6M12 4v16',
+        upload: 'M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M17 8l-5-5-5 5M12 3v12',
+        settings: 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z',
+        undo: 'M9 14L4 9l5-5M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5v0a5.5 5.5 0 0 1-5.5 5.5H11',
+        redo: 'm15 14 5-5-5-5M20 9H9.5A5.5 5.5 0 0 0 4 14.5v0A5.5 5.5 0 0 0 9.5 20H13',
+        eye: 'M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6z',
+        eyeOff: 'M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24 M1 1l22 22',
+        lock: 'M7 11V7a5 5 0 0 1 10 0v4M3 11h18v11H3z',
+        unlock: 'M7 11V7a5 5 0 0 1 9.9-1M3 11h18v11H3z',
+        close: 'M18 6L6 18M6 6l12 12',
+        check: 'M20 6L9 17l-5-5',
+        image: 'M21 19V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2z M8.5 10a1.5 1.5 0 1 0 0-3 1.5 1.5 0 0 0 0 3z M21 15l-5-5L5 21',
+        video: 'm22 8-6 4 6 4V8Z M2 6h14v12H2z',
+        lightbulb: 'M12 2.69l.13.04a7.9 7.9 0 0 1 5.92 6.61 8.27 8.27 0 0 1-1.77 6.13A8.52 8.52 0 0 1 12 21.31a8.52 8.52 0 0 1-4.28-5.83 8.27 8.27 0 0 1-1.77-6.13A7.9 7.9 0 0 1 11.87 2.73L12 2.69zM12 22v-1.16M9 19h6'
+      };
+      
+      const paths = icons[name] || '';
+      return e('svg', { width: size, height: size, viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round', className },
+        paths.split(' M').filter(Boolean).map((p, i) => 
+          e('path', { key: i, d: (i === 0 ? '' : 'M') + p })
+        )
+      );
+    };
+    
+    // ============================================
+    // 工具栏组件（完整版）
+    // ============================================
+    
+    const Toolbar = memo(({ activeTool, setActiveTool, onUpload, onUndo, onRedo, canUndo, canRedo, onSettings, drawingOptions, setDrawingOptions, t, isLayerExpanded }) => {
+      const fileInputRef = useRef(null);
+      const [shapeMenuOpen, setShapeMenuOpen] = useState(false);
+      const [drawMenuOpen, setDrawMenuOpen] = useState(false);
+      
+      const leftPosition = isLayerExpanded ? 288 : 16;
+      
+      const ToolButton = ({ tool, icon, label, active, onClick }) => (
+        e('button', {
+          onClick,
+          className: \`p-2 rounded-md transition-colors \${active ? 'tool-active' : 'text-gray-500 hover:bg-gray-100'}\`,
+          title: label
+        }, e(Icon, { name: icon }))
+      );
+      
+      const tools = [
+        { id: 'select', icon: 'select', label: t('toolbar.select') },
+        { id: 'pan', icon: 'pan', label: t('toolbar.pan') },
+      ];
+      
+      const shapes = [
+        { id: 'rectangle', icon: 'rectangle', label: t('toolbar.rectangle') },
+        { id: 'circle', icon: 'circle', label: t('toolbar.circle') },
+        { id: 'text', icon: 'text', label: t('toolbar.text') },
+      ];
+      
+      const drawTools = [
+        { id: 'draw', icon: 'draw', label: t('toolbar.draw') },
+      ];
+      
+      return e('div', {
+        className: 'fixed z-10 px-2 py-4 bg-white border border-gray-200 rounded-full shadow-xl flex flex-col items-center gap-2',
+        style: { left: \`\${leftPosition}px\`, top: '50%', transform: 'translateY(-50%)', transition: 'left 0.35s cubic-bezier(0.4, 0, 0.2, 1)' }
+      },
+        e(ToolButton, { tool: 'settings', icon: 'settings', label: t('toolbar.settings'), onClick: onSettings }),
+        e('div', { className: 'w-10 h-px bg-gray-200' }),
+        ...tools.map(tool => e(ToolButton, { key: tool.id, ...tool, active: activeTool === tool.id, onClick: () => setActiveTool(tool.id) })),
+        
+        // 形状工具组
+        e('div', { className: 'relative' },
+          e(ToolButton, { tool: 'shapes', icon: 'rectangle', label: t('toolbar.shapes'), active: shapes.some(s => s.id === activeTool), onClick: () => setShapeMenuOpen(!shapeMenuOpen) }),
+          shapeMenuOpen && e('div', { className: 'absolute left-full top-0 ml-2 p-1 bg-white border border-gray-200 rounded-lg shadow-xl flex flex-col gap-1' },
+            ...shapes.map(tool => e(ToolButton, { key: tool.id, ...tool, active: activeTool === tool.id, onClick: () => { setActiveTool(tool.id); setShapeMenuOpen(false); } }))
+          )
+        ),
+        
+        // 绘图工具组
+        e('div', { className: 'relative' },
+          e(ToolButton, { tool: 'draw', icon: 'draw', label: t('toolbar.drawingTools'), active: drawTools.some(d => d.id === activeTool), onClick: () => setDrawMenuOpen(!drawMenuOpen) }),
+          drawMenuOpen && e('div', { className: 'absolute left-full top-0 ml-2 p-1 bg-white border border-gray-200 rounded-lg shadow-xl flex flex-col gap-1' },
+            ...drawTools.map(tool => e(ToolButton, { key: tool.id, ...tool, active: activeTool === tool.id, onClick: () => { setActiveTool(tool.id); setDrawMenuOpen(false); } }))
+          )
+        ),
+        
+        e('div', { className: 'w-10 h-px bg-gray-200' }),
+        e('input', { type: 'color', value: drawingOptions.strokeColor, onChange: (ev) => setDrawingOptions({ ...drawingOptions, strokeColor: ev.target.value }), className: 'w-8 h-8 p-0 border border-gray-300 rounded-md cursor-pointer', title: t('toolbar.strokeColor') }),
+        e('input', { type: 'range', min: 1, max: 50, value: drawingOptions.strokeWidth, onChange: (ev) => setDrawingOptions({ ...drawingOptions, strokeWidth: parseInt(ev.target.value) }), className: 'w-10 cursor-pointer', title: t('toolbar.strokeWidth') }),
+        e('span', { className: 'text-sm text-gray-600 w-6 text-center' }, drawingOptions.strokeWidth),
+        
+        e('div', { className: 'w-10 h-px bg-gray-200' }),
+        e('input', { ref: fileInputRef, type: 'file', accept: 'image/*', className: 'hidden', onChange: (ev) => { if (ev.target.files[0]) { onUpload(ev.target.files[0]); ev.target.value = ''; } } }),
+        e(ToolButton, { tool: 'upload', icon: 'upload', label: t('toolbar.upload'), onClick: () => fileInputRef.current?.click() }),
+        
+        e('div', { className: 'w-10 h-px bg-gray-200' }),
+        e(ToolButton, { tool: 'undo', icon: 'undo', label: t('toolbar.undo'), onClick: onUndo, active: canUndo }),
+        e(ToolButton, { tool: 'redo', icon: 'redo', label: t('toolbar.redo'), onClick: onRedo, active: canRedo })
+      );
+    });
+    
+    // ============================================
+    // 提示词输入栏组件（完整版）
+    // ============================================
+    
+    const PromptBar = memo(({ prompt, setPrompt, onGenerate, isLoading, t, mode, setMode, userEffects, onAddEffect, onDeleteEffect, selectedCount }) => {
+      const textareaRef = useRef(null);
+      const [quickMenuOpen, setQuickMenuOpen] = useState(false);
+      
+      useEffect(() => {
+        if (textareaRef.current) {
+          textareaRef.current.style.height = 'auto';
+          textareaRef.current.style.height = \`\${textareaRef.current.scrollHeight}px\`;
+        }
+      }, [prompt]);
+      
+      const handleKeyDown = (ev) => {
+        if (ev.key === 'Enter' && !ev.shiftKey) {
+          ev.preventDefault();
+          if (!isLoading && prompt.trim()) onGenerate();
+        }
+      };
+      
+      const handleSave = () => {
+        const name = window.prompt(t('myEffects.saveEffectPrompt'), t('myEffects.defaultName'));
+        if (name && prompt.trim()) {
+          onAddEffect({ id: generateId(), name, value: prompt });
+        }
+      };
+      
+      const builtInPrompts = t('quickPrompts');
+      
+      const getPlaceholder = () => {
+        if (mode === 'video') return t('promptBar.placeholderDefaultVideo');
+        if (selectedCount > 0) return \`已选择 \${selectedCount} 个元素作为参考，描述你想生成的图片...\`;
+        return t('promptBar.placeholderDefault');
+      };
+      
+      return e('div', { className: 'fixed bottom-4 left-1/2 -translate-x-1/2 w-full max-w-3xl px-4 z-10' },
+        e('div', { className: 'bg-white border border-gray-200 rounded-full shadow-xl p-2 flex items-center gap-2' },
+          e('div', { className: 'flex-shrink-0 flex items-center bg-gray-100 rounded-full p-0.5' },
+            e('button', { onClick: () => setMode('image'), className: \`px-3 py-1 text-sm font-medium rounded-full transition-colors \${mode === 'image' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600'}\` }, t('promptBar.imageMode')),
+            e('button', { onClick: () => setMode('video'), className: \`px-3 py-1 text-sm font-medium rounded-full transition-colors \${mode === 'video' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600'}\` }, t('promptBar.videoMode'))
+          ),
+          
+          e('div', { className: 'relative' },
+            e('button', {
+              onClick: () => setQuickMenuOpen(!quickMenuOpen),
+              className: 'w-11 h-11 flex items-center justify-center text-white rounded-full hover:brightness-110 transition-all',
+              style: { backgroundColor: 'var(--button-bg-color)' },
+              title: '快捷提示词'
+            }, e(Icon, { name: 'lightbulb', size: 24 })),
+            quickMenuOpen && e('div', { className: 'absolute bottom-full left-0 mb-3 w-80 max-h-96 overflow-y-auto bg-white border border-gray-200 rounded-xl shadow-xl p-2' },
+              e('h4', { className: 'px-2 pt-1 pb-2 text-xs font-semibold text-gray-500 uppercase tracking-wider' }, t('myEffects.title')),
+              userEffects.length > 0 ? userEffects.map(eff => 
+                e('div', { key: eff.id, className: 'group flex items-center justify-between p-2 rounded-md hover:bg-gray-100 text-gray-800 text-sm' },
+                  e('button', { onClick: () => { setPrompt(eff.value); setQuickMenuOpen(false); }, className: 'flex-grow text-left truncate' }, eff.name),
+                  e('button', { onClick: () => onDeleteEffect(eff.id), className: 'ml-2 p-1 rounded-full opacity-0 group-hover:opacity-100 hover:bg-red-100 text-red-600' }, e(Icon, { name: 'close', size: 14 }))
+                )
+              ) : e('p', { className: 'px-2 pb-2 text-xs text-gray-500' }, t('myEffects.noEffects')),
+              e('div', { className: 'border-t border-gray-200 my-2' }),
+              ...builtInPrompts.map((item, i) => 
+                e('button', { key: i, onClick: () => { setPrompt(item.value); setQuickMenuOpen(false); }, className: 'block w-full text-left p-2 rounded-md hover:bg-gray-100 text-gray-800 text-sm' }, item.name)
+              )
+            )
+          ),
+          
+          e('textarea', {
+            ref: textareaRef,
+            rows: 1,
+            value: prompt,
+            onChange: (ev) => setPrompt(ev.target.value),
+            onKeyDown: handleKeyDown,
+            placeholder: getPlaceholder(),
+            disabled: isLoading,
+            className: 'flex-grow bg-transparent text-gray-900 placeholder-gray-400 focus:outline-none px-2 resize-none overflow-hidden max-h-24 text-sm'
+          }),
+          
+          prompt.trim() && !isLoading && e('button', {
+            onClick: handleSave,
+            title: t('myEffects.saveEffectTooltip'),
+            className: 'flex-shrink-0 w-8 h-8 flex items-center justify-center text-gray-500 rounded-full hover:bg-gray-100 transition-colors'
+          }, '🔖'),
+          
+          e('button', {
+            onClick: onGenerate,
+            disabled: isLoading || !prompt.trim(),
+            className: 'flex-shrink-0 w-9 h-9 flex items-center justify-center text-white rounded-full disabled:opacity-50 disabled:cursor-not-allowed hover:brightness-110 transition-all',
+            style: { backgroundColor: 'var(--button-bg-color)' }
+          }, isLoading ? e('div', { className: 'loading-spinner' }) : '→')
+        )
+      );
+    });
+    
+    // ============================================
+    // 灵感库面板组件（完整版，带传送门动画）
+    // ============================================
+    
+    const InspirationPanel = memo(({ t, isMinimized, onToggle }) => {
+      const [activeCategory, setActiveCategory] = useState('character');
+      const [assets, setAssets] = useState({ character: [], scene: [], prop: [] });
+      const [isDragging, setIsDragging] = useState(false);
+      const fileInputRef = useRef(null);
+      
+      useEffect(() => {
+        loadAssets();
+      }, []);
+      
+      const loadAssets = async () => {
+        try {
+          const allAssets = await assetStorage.getAllAssets();
+          const grouped = { character: [], scene: [], prop: [] };
+          allAssets.forEach(asset => {
+            if (grouped[asset.category]) grouped[asset.category].push(asset);
+          });
+          setAssets(grouped);
+        } catch (err) {
+          console.error('加载素材失败:', err);
+        }
+      };
+      
+      const handleUpload = async (file) => {
+        if (!file || !file.type.startsWith('image/')) return;
+        const dataUrl = await fileToDataUrl(file);
+        const img = new Image();
+        img.onload = async () => {
+          const asset = {
+            id: generateId(),
+            name: file.name,
+            category: activeCategory,
+            dataUrl,
+            mimeType: file.type,
+            width: img.width,
+            height: img.height,
+            createdAt: Date.now()
+          };
+          await assetStorage.addAsset(asset);
+          await loadAssets();
+        };
+        img.src = dataUrl;
+      };
+      
+      const handleDrop = (ev) => {
+        ev.preventDefault();
+        setIsDragging(false);
+        const file = ev.dataTransfer.files[0];
+        if (file) handleUpload(file);
+      };
+      
+      const currentAssets = assets[activeCategory] || [];
+      
+      return e('div', {
+        className: \`portal-animation portal-right fixed right-4 top-4 bottom-4 w-80 bg-white border border-gray-200 rounded-2xl shadow-xl flex flex-col z-20 \${isMinimized ? 'portal-minimized' : 'portal-expanded'}\`
+      },
+        e('div', { className: 'flex-shrink-0 flex justify-between items-center px-3 py-2 border-b border-gray-200' },
+          e('h3', { className: 'text-sm font-semibold' }, t('inspiration.title')),
+          e('button', {
+            onClick: onToggle,
+            className: 'shrink-0 p-2.5 rounded-xl border border-gray-200 hover:bg-gray-100 transition-colors',
+            title: '最小化'
+          }, e(Icon, { name: 'close', size: 20 }))
+        ),
+        
+        e('div', { className: 'flex gap-2 p-3 border-b border-gray-200' },
+          ...['character', 'scene', 'prop'].map(cat =>
+            e('button', {
+              key: cat,
+              onClick: () => setActiveCategory(cat),
+              className: \`px-4 py-2 rounded-lg text-sm font-medium transition-colors \${activeCategory === cat ? 'bg-blue-500 text-white' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}\`
+            }, t(\`inspiration.\${cat}\`))
+          )
+        ),
+        
+        e('div', {
+          className: 'flex-1 overflow-y-auto p-3',
+          onDrop: handleDrop,
+          onDragOver: (ev) => { ev.preventDefault(); setIsDragging(true); },
+          onDragLeave: () => setIsDragging(false)
+        },
+          currentAssets.length === 0
+            ? e('div', {
+                className: \`flex flex-col items-center justify-center h-full border-2 border-dashed rounded-lg cursor-pointer transition-colors \${isDragging ? 'border-blue-500 bg-blue-50' : 'border-gray-300'}\`,
+                onClick: () => fileInputRef.current?.click()
+              },
+                e(Icon, { name: 'upload', size: 48, className: 'text-gray-400 mb-2' }),
+                e('p', { className: 'text-gray-500 text-sm' }, t('inspiration.empty'))
+              )
+            : e('div', { className: 'grid grid-cols-2 gap-3' },
+                ...currentAssets.map(asset =>
+                  e('div', {
+                    key: asset.id,
+                    className: 'relative aspect-square rounded-lg overflow-hidden border border-gray-200 hover:border-blue-500 transition-colors cursor-pointer group',
+                    draggable: true
+                  },
+                    e('img', { src: asset.dataUrl, alt: asset.name, className: 'w-full h-full object-cover' }),
+                    e('div', { className: 'absolute inset-0 bg-black bg-opacity-0 group-hover:bg-opacity-20 transition-all' })
+                  )
+                )
+              )
+        ),
+        
+        e('div', { className: 'p-3 border-t border-gray-200' },
+          e('input', {
+            ref: fileInputRef,
+            type: 'file',
+            accept: 'image/*',
+            className: 'hidden',
+            onChange: (ev) => {
+              if (ev.target.files[0]) {
+                handleUpload(ev.target.files[0]);
+                ev.target.value = '';
+              }
+            }
+          }),
+          e('button', {
+            onClick: () => fileInputRef.current?.click(),
+            className: 'w-full py-2 px-4 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition-colors font-medium'
+          }, t('inspiration.upload'))
+        )
+      );
+    });
+    
+    // ============================================
+    // 图层面板组件（完整版，带传送门动画和拖拽排序）
+    // ============================================
+    
+    const LayerPanel = memo(({ elements, selectedIds, onSelect, onToggleVisible, onToggleLock, onReorder, t, isMinimized, onToggle }) => {
+      const getIcon = (el) => {
+        if (el.type === 'image') return 'image';
+        if (el.type === 'video') return 'video';
+        if (el.type === 'text') return 'text';
+        if (el.type === 'path') return 'draw';
+        return 'rectangle';
+      };
+      
+      return e('div', {
+        className: \`portal-animation fixed left-4 top-4 bottom-4 w-64 bg-white border border-gray-200 rounded-2xl shadow-xl flex flex-col z-20 \${isMinimized ? 'portal-minimized' : 'portal-expanded'}\`
+      },
+        e('div', { className: 'flex-shrink-0 flex justify-between items-center px-3 py-2 border-b border-gray-200' },
+          e('h3', { className: 'text-sm font-semibold' }, t('layers.title')),
+          e('button', {
+            onClick: onToggle,
+            className: 'shrink-0 p-2.5 rounded-xl border border-gray-200 hover:bg-gray-100 transition-colors',
+            title: '最小化'
+          }, e(Icon, { name: 'close', size: 20 }))
+        ),
+        
+        e('div', { className: 'flex-grow p-2 overflow-y-auto' },
+          elements.length === 0
+            ? e('div', { className: 'flex items-center justify-center h-full text-gray-400 text-sm' }, t('layers.noLayers'))
+            : [...elements].reverse().map((el, idx) =>
+                e('div', {
+                  key: el.id,
+                  onClick: () => onSelect(el.id),
+                  className: \`flex items-center space-x-2 p-1.5 rounded-md cursor-pointer text-sm transition-colors group \${selectedIds.includes(el.id) ? 'bg-gray-900/10' : 'hover:bg-gray-100'} \${el.isVisible === false ? 'opacity-50' : ''}\`
+                },
+                  e('span', { className: 'flex-shrink-0 w-4 h-4 flex items-center justify-center text-gray-400' }, e(Icon, { name: getIcon(el), size: 16 })),
+                  e('span', { className: 'flex-grow truncate text-xs' }, el.name || el.type),
+                  e('div', { className: 'flex-shrink-0 flex items-center opacity-0 group-hover:opacity-100 transition-opacity' },
+                    e('button', {
+                      onClick: (ev) => { ev.stopPropagation(); onToggleLock(el.id); },
+                      className: \`p-1 rounded-full hover:bg-gray-100 \${el.isLocked ? 'text-gray-900' : 'text-gray-400'}\`,
+                      title: el.isLocked ? 'Unlock' : 'Lock'
+                    }, e(Icon, { name: el.isLocked ? 'lock' : 'unlock', size: 16 })),
+                    e('button', {
+                      onClick: (ev) => { ev.stopPropagation(); onToggleVisible(el.id); },
+                      className: 'p-1 rounded-full hover:bg-gray-100 text-gray-400',
+                      title: el.isVisible === false ? 'Show' : 'Hide'
+                    }, e(Icon, { name: el.isVisible === false ? 'eyeOff' : 'eye', size: 16 }))
+                  )
+                )
+              )
+        )
+      );
+    });
+    
+    // ============================================
+    // 设置面板组件
+    // ============================================
+    
+    const SettingsPanel = memo(({ isOpen, onClose, language, setLanguage, canvasBgColor, setCanvasBgColor, uiTheme, setUiTheme, buttonTheme, setButtonTheme, t }) => {
+      if (!isOpen) return null;
+      
+      return e('div', { className: 'overlay animate-fadeIn', onClick: onClose },
+        e('div', {
+          className: 'fixed inset-0 flex items-center justify-center z-50',
+          onClick: (ev) => ev.stopPropagation()
+        },
+          e('div', { className: 'relative p-6 border border-gray-200 rounded-3xl shadow-2xl flex flex-col gap-5 w-96 bg-white' },
+            e('div', { className: 'flex justify-between items-center' },
+              e('div', { className: 'flex items-center gap-3' },
+                e('div', { className: 'w-10 h-10 rounded-xl bg-gray-100 flex items-center justify-center' }, e(Icon, { name: 'settings', size: 20 })),
+                e('h3', { className: 'text-xl font-semibold text-gray-900' }, t('settings.title'))
+              ),
+              e('button', { onClick: onClose, className: 'w-8 h-8 rounded-lg hover:bg-gray-100 flex items-center justify-center text-gray-400 hover:text-gray-700 transition-colors' }, e(Icon, { name: 'close', size: 18 }))
+            ),
+            
+            e('div', { className: 'space-y-2.5' },
+              e('label', { className: 'text-xs font-semibold text-gray-500 uppercase tracking-wide' }, t('settings.language')),
+              e('div', { className: 'inline-flex w-full rounded-xl bg-gray-100 p-1' },
+                e('button', { onClick: () => setLanguage('en'), className: \`flex-1 py-2.5 text-sm font-medium rounded-lg transition-all \${language === 'en' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'}\` }, 'English'),
+                e('button', { onClick: () => setLanguage('zh'), className: \`flex-1 py-2.5 text-sm font-medium rounded-lg transition-all \${language === 'zh' ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-600 hover:text-gray-900'}\` }, '中文')
+              )
+            ),
+            
+            e('div', { className: 'space-y-2.5' },
+              e('label', { className: 'text-xs font-semibold text-gray-500 uppercase tracking-wide' }, t('settings.canvas')),
+              e('div', { className: 'flex items-center justify-between p-3 bg-gray-50 rounded-xl' },
+                e('span', { className: 'text-sm text-gray-700' }, t('settings.backgroundColor')),
+                e('input', { type: 'color', value: canvasBgColor, onChange: (ev) => setCanvasBgColor(ev.target.value), className: 'w-10 h-10 p-0 border-2 border-white rounded-lg cursor-pointer shadow-sm' })
+              )
+            ),
+            
+            e('div', { className: 'space-y-3' },
+              e('label', { className: 'text-xs font-semibold text-gray-500 uppercase tracking-wide' }, t('settings.uiTheme')),
+              e('div', { className: 'flex items-center justify-between p-3 bg-gray-50 rounded-xl' },
+                e('span', { className: 'text-sm text-gray-700' }, t('settings.color')),
+                e('input', { type: 'color', value: uiTheme.color, onChange: (ev) => setUiTheme({ ...uiTheme, color: ev.target.value }), className: 'w-10 h-10 p-0 border-2 border-white rounded-lg cursor-pointer shadow-sm' })
+              ),
+              e('div', { className: 'flex items-center gap-3 p-3 bg-gray-50 rounded-xl' },
+                e('span', { className: 'text-sm text-gray-700 flex-shrink-0' }, t('settings.opacity')),
+                e('input', { type: 'range', min: 0.1, max: 1, step: 0.05, value: uiTheme.opacity, onChange: (ev) => setUiTheme({ ...uiTheme, opacity: parseFloat(ev.target.value) }), className: 'flex-1 h-1.5 bg-gray-200 rounded-full appearance-none cursor-pointer' }),
+                e('span', { className: 'text-xs font-medium text-gray-500 w-10 text-right' }, Math.round(uiTheme.opacity * 100) + '%')
+              )
+            )
+          )
+        )
+      );
+    });
+    
+    // ============================================
+    // 画布组件（简化版）
+    // ============================================
+    
+    const Canvas = memo(({ elements, bgColor, panOffset, zoom, activeTool, drawingOptions, onElementsChange, selectedIds, onSelect }) => {
+      const svgRef = useRef(null);
+      const [isDrawing, setIsDrawing] = useState(false);
+      const [currentPath, setCurrentPath] = useState([]);
+      const [isPanning, setIsPanning] = useState(false);
+      const [panStart, setPanStart] = useState({ x: 0, y: 0 });
+      const [localPanOffset, setLocalPanOffset] = useState(panOffset);
+      
+      useEffect(() => {
+        setLocalPanOffset(panOffset);
+      }, [panOffset]);
+      
+      const getCanvasPoint = (clientX, clientY) => {
+        const rect = svgRef.current?.getBoundingClientRect();
+        if (!rect) return { x: 0, y: 0 };
+        return {
+          x: (clientX - rect.left - localPanOffset.x) / zoom,
+          y: (clientY - rect.top - localPanOffset.y) / zoom
+        };
+      };
+      
+      const handleMouseDown = (ev) => {
+        const pt = getCanvasPoint(ev.clientX, ev.clientY);
+        
+        if (activeTool === 'pan') {
+          setIsPanning(true);
+          setPanStart({ x: ev.clientX, y: ev.clientY });
+        } else if (activeTool === 'draw') {
+          setIsDrawing(true);
+          setCurrentPath([pt]);
+        }
+      };
+      
+      const handleMouseMove = (ev) => {
+        if (isPanning) {
+          const dx = ev.clientX - panStart.x;
+          const dy = ev.clientY - panStart.y;
+          setLocalPanOffset({ x: panOffset.x + dx, y: panOffset.y + dy });
+        } else if (isDrawing) {
+          const pt = getCanvasPoint(ev.clientX, ev.clientY);
+          setCurrentPath(prev => [...prev, pt]);
+        }
+      };
+      
+      const handleMouseUp = () => {
+        if (isPanning) {
+          setIsPanning(false);
+        } else if (isDrawing && currentPath.length > 1) {
+          const newElement = {
+            id: generateId(),
+            type: 'path',
+            points: currentPath,
+            strokeColor: drawingOptions.strokeColor,
+            strokeWidth: drawingOptions.strokeWidth,
+            x: 0,
+            y: 0
+          };
+          onElementsChange([...elements, newElement]);
+          setIsDrawing(false);
+          setCurrentPath([]);
+        }
+      };
+      
+      const renderElement = (el) => {
+        if (el.isVisible === false) return null;
+        
+        if (el.type === 'path') {
+          const d = el.points.map((p, i) => (i === 0 ? \`M \${p.x} \${p.y}\` : \`L \${p.x} \${p.y}\`)).join(' ');
+          return e('path', { key: el.id, d, stroke: el.strokeColor, strokeWidth: el.strokeWidth, fill: 'none', strokeLinecap: 'round', strokeLinejoin: 'round', onClick: () => onSelect(el.id) });
+        } else if (el.type === 'image') {
+          return e('image', { key: el.id, href: el.href, x: el.x, y: el.y, width: el.width, height: el.height, onClick: () => onSelect(el.id) });
+        } else if (el.type === 'shape') {
+          if (el.shapeType === 'rectangle') {
+            return e('rect', { key: el.id, x: el.x, y: el.y, width: el.width, height: el.height, fill: el.fillColor, stroke: el.strokeColor, strokeWidth: el.strokeWidth, onClick: () => onSelect(el.id) });
+          } else if (el.shapeType === 'circle') {
+            return e('ellipse', { key: el.id, cx: el.x + el.width/2, cy: el.y + el.height/2, rx: el.width/2, ry: el.height/2, fill: el.fillColor, stroke: el.strokeColor, strokeWidth: el.strokeWidth, onClick: () => onSelect(el.id) });
+          }
+        } else if (el.type === 'text') {
+          return e('foreignObject', { key: el.id, x: el.x, y: el.y, width: el.width, height: el.height, onClick: () => onSelect(el.id) },
+            e('div', { style: { fontSize: el.fontSize + 'px', color: el.fontColor, width: '100%', height: '100%' } }, el.text)
+          );
+        }
+        return null;
+      };
+      
+      return e('div', {
+        ref: svgRef,
+        className: 'canvas-container',
+        style: { backgroundColor: bgColor, cursor: activeTool === 'pan' ? 'grab' : activeTool === 'draw' ? 'crosshair' : 'default' },
+        onMouseDown: handleMouseDown,
+        onMouseMove: handleMouseMove,
+        onMouseUp: handleMouseUp,
+        onMouseLeave: handleMouseUp
+      },
+        e('svg', { width: '100%', height: '100%', style: { transform: \`translate(\${localPanOffset.x}px, \${localPanOffset.y}px) scale(\${zoom})\` } },
+          ...elements.map(renderElement),
+          isDrawing && currentPath.length > 0 && e('path', {
+            d: currentPath.map((p, i) => (i === 0 ? \`M \${p.x} \${p.y}\` : \`L \${p.x} \${p.y}\`)).join(' '),
+            stroke: drawingOptions.strokeColor,
+            strokeWidth: drawingOptions.strokeWidth,
+            fill: 'none',
+            strokeLinecap: 'round',
+            strokeLinejoin: 'round'
+          })
+        )
+      );
+    });
+    
+    // ============================================
+    // 主应用组件
+    // ============================================
+    
+    function App() {
+      const [language, setLanguage] = useState('zh');
+      const [activeTool, setActiveTool] = useState('select');
+      const [elements, setElements] = useState([]);
+      const [history, setHistory] = useState([[]]);
+      const [historyIndex, setHistoryIndex] = useState(0);
+      const [panOffset, setPanOffset] = useState({ x: 400, y: 300 });
+      const [zoom, setZoom] = useState(1);
+      const [prompt, setPrompt] = useState('');
+      const [isLoading, setIsLoading] = useState(false);
+      const [selectedIds, setSelectedIds] = useState([]);
+      const [drawingOptions, setDrawingOptions] = useState({ strokeColor: '#111827', strokeWidth: 5 });
+      const [canvasBgColor, setCanvasBgColor] = useState('#FFFFFF');
+      const [uiTheme, setUiTheme] = useState({ color: '#FFFFFF', opacity: 0.9 });
+      const [buttonTheme, setButtonTheme] = useState({ color: '#111827', opacity: 1 });
+      const [generationMode, setGenerationMode] = useState('image');
+      const [userEffects, setUserEffects] = useState(() => {
+        try {
+          const saved = localStorage.getItem('userEffects');
+          return saved ? JSON.parse(saved) : [];
+        } catch { return []; }
+      });
+      const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+      const [isLayerMinimized, setIsLayerMinimized] = useState(() => {
+        const saved = localStorage.getItem('layerPanelMinimized');
+        return saved === 'true';
+      });
+      const [isInspirationMinimized, setIsInspirationMinimized] = useState(() => {
+        const saved = localStorage.getItem('inspirationPanelMinimized');
+        return saved === 'true';
+      });
+      
+      const t = useCallback((key, ...args) => {
+        const keys = key.split('.');
+        let result = translations[language];
+        for (const k of keys) result = result?.[k];
+        return typeof result === 'function' ? result(...args) : result || key;
+      }, [language]);
+      
+      useEffect(() => {
+        const root = document.documentElement;
+        const hex = uiTheme.color.replace('#', '');
+        const r = parseInt(hex.substring(0, 2), 16);
+        const g = parseInt(hex.substring(2, 4), 16);
+        const b = parseInt(hex.substring(4, 6), 16);
+        root.style.setProperty('--ui-bg-color', \`rgba(\${r}, \${g}, \${b}, \${uiTheme.opacity})\`);
+        
+        const btnHex = buttonTheme.color.replace('#', '');
+        const btnR = parseInt(btnHex.substring(0, 2), 16);
+        const btnG = parseInt(btnHex.substring(2, 4), 16);
+        const btnB = parseInt(btnHex.substring(4, 6), 16);
+        root.style.setProperty('--button-bg-color', \`rgba(\${btnR}, \${btnG}, \${btnB}, \${buttonTheme.opacity})\`);
+      }, [uiTheme, buttonTheme]);
+      
+      useEffect(() => {
+        localStorage.setItem('userEffects', JSON.stringify(userEffects));
+      }, [userEffects]);
+      
+      useEffect(() => {
+        localStorage.setItem('layerPanelMinimized', isLayerMinimized.toString());
+      }, [isLayerMinimized]);
+      
+      useEffect(() => {
+        localStorage.setItem('inspirationPanelMinimized', isInspirationMinimized.toString());
+      }, [isInspirationMinimized]);
+      
+      const canUndo = historyIndex > 0;
+      const canRedo = historyIndex < history.length - 1;
+      
+      const commitHistory = (newElements) => {
+        const newHistory = history.slice(0, historyIndex + 1);
+        newHistory.push(newElements);
+        setHistory(newHistory);
+        setHistoryIndex(newHistory.length - 1);
+        setElements(newElements);
+      };
+      
+      const handleUndo = () => {
+        if (canUndo) {
+          const newIndex = historyIndex - 1;
+          setHistoryIndex(newIndex);
+          setElements(history[newIndex]);
+        }
+      };
+      
+      const handleRedo = () => {
+        if (canRedo) {
+          const newIndex = historyIndex + 1;
+          setHistoryIndex(newIndex);
+          setElements(history[newIndex]);
+        }
+      };
+      
+      const handleUpload = async (file) => {
+        const dataUrl = await fileToDataUrl(file);
+        const img = new Image();
+        img.onload = () => {
+          const newEl = {
+            id: generateId(),
+            type: 'image',
+            href: dataUrl,
+            x: 100,
+            y: 100,
+            width: img.width,
+            height: img.height,
+            mimeType: file.type
+          };
+          commitHistory([...elements, newEl]);
+        };
+        img.src = dataUrl;
+      };
+      
+      const handleGenerate = async () => {
+        if (!prompt.trim()) return;
+        
+        setIsLoading(true);
+        try {
+          // 收集选中的图像作为参考
+          const referenceImages = elements
+            .filter(el => selectedIds.includes(el.id) && el.type === 'image')
+            .map(el => el.href)
+            .filter(Boolean);
+          
+          // 调用API生成图像
+          const imageUrl = await generateImage(prompt, referenceImages);
+          
+          // 创建新的图像元素
+          const img = new Image();
+          img.onload = () => {
+            const newEl = {
+              id: generateId(),
+              type: 'image',
+              href: imageUrl,
+              x: panOffset.x / zoom + 100,
+              y: panOffset.y / zoom + 100,
+              width: img.width,
+              height: img.height,
+              name: prompt.slice(0, 30) + (prompt.length > 30 ? '...' : '')
+            };
+            commitHistory([...elements, newEl]);
+            setPrompt('');
+          };
+          img.onerror = () => {
+            console.error('生成的图像加载失败');
+            alert('生成的图像加载失败');
+          };
+          img.src = imageUrl;
+        } catch (error) {
+          console.error('生成图像失败:', error);
+          if (error.message.includes('API Key')) {
+            alert('⚠️ 请配置 Gemini API Key\\n\\n在Gemini Canvas中，API Key会自动注入。\\n在本地运行时，请在代码中设置 API_KEY 变量。');
+          } else {
+            alert(\`生成图像失败：\${error.message}\\n\\n请查看控制台了解详细信息。\`);
+          }
+        } finally {
+          setIsLoading(false);
+        }
+      };
+      
+      const handleToggleVisible = (id) => {
+        const newElements = elements.map(el => el.id === id ? { ...el, isVisible: el.isVisible === false ? true : false } : el);
+        commitHistory(newElements);
+      };
+      
+      const handleToggleLock = (id) => {
+        const newElements = elements.map(el => el.id === id ? { ...el, isLocked: !el.isLocked } : el);
+        commitHistory(newElements);
+      };
+      
+      const handleSelect = (id) => {
+        setSelectedIds([id]);
+      };
+      
+      return e('div', { className: 'w-full h-full relative' },
+        e(Canvas, {
+          elements,
+          bgColor: canvasBgColor,
+          panOffset,
+          zoom,
+          activeTool,
+          drawingOptions,
+          onElementsChange: commitHistory,
+          selectedIds,
+          onSelect: handleSelect
+        }),
+        
+        e(Toolbar, {
+          activeTool,
+          setActiveTool,
+          onUpload: handleUpload,
+          onUndo: handleUndo,
+          onRedo: handleRedo,
+          canUndo,
+          canRedo,
+          onSettings: () => setIsSettingsOpen(true),
+          drawingOptions,
+          setDrawingOptions,
+          t,
+          isLayerExpanded: !isLayerMinimized
+        }),
+        
+        !isLayerMinimized && e(LayerPanel, {
+          elements,
+          selectedIds,
+          onSelect: handleSelect,
+          onToggleVisible: handleToggleVisible,
+          onToggleLock: handleToggleLock,
+          onReorder: () => {},
+          t,
+          isMinimized: isLayerMinimized,
+          onToggle: () => setIsLayerMinimized(!isLayerMinimized)
+        }),
+        
+        isLayerMinimized && e('button', {
+          onClick: () => setIsLayerMinimized(false),
+          className: 'fixed left-4 top-4 z-20 p-3 bg-white border border-gray-200 rounded-xl shadow-md hover:bg-gray-50',
+          title: t('layers.title')
+        }, e(Icon, { name: 'eye' })),
+        
+        !isInspirationMinimized && e(InspirationPanel, {
+          t,
+          isMinimized: isInspirationMinimized,
+          onToggle: () => setIsInspirationMinimized(!isInspirationMinimized)
+        }),
+        
+        isInspirationMinimized && e('button', {
+          onClick: () => setIsInspirationMinimized(false),
+          className: 'fixed right-4 top-4 z-20 p-3 bg-white border border-gray-200 rounded-xl shadow-md hover:bg-gray-50',
+          title: t('inspiration.title')
+        }, e(Icon, { name: 'lightbulb' })),
+        
+        e(PromptBar, {
+          prompt,
+          setPrompt,
+          onGenerate: handleGenerate,
+          isLoading,
+          t,
+          mode: generationMode,
+          setMode: setGenerationMode,
+          userEffects,
+          onAddEffect: (eff) => setUserEffects([...userEffects, eff]),
+          onDeleteEffect: (id) => setUserEffects(userEffects.filter(e => e.id !== id)),
+          selectedCount: selectedIds.filter(id => elements.find(el => el.id === id && el.type === 'image')).length
+        }),
+        
+        e(SettingsPanel, {
+          isOpen: isSettingsOpen,
+          onClose: () => setIsSettingsOpen(false),
+          language,
+          setLanguage,
+          canvasBgColor,
+          setCanvasBgColor,
+          uiTheme,
+          setUiTheme,
+          buttonTheme,
+          setButtonTheme,
+          t
+        })
+      );
+    }
+    
+    // ============================================
+    // 挂载应用
+    // ============================================
+    
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(e(App));
+    
+    console.log('%c🎨 Making - 完整功能版已启动！', 'color: #3b82f6; font-size: 16px; font-weight: bold');
+    console.log('%c✅ 已包含功能：', 'color: #10b981; font-weight: bold');
+    console.log('  • 完整工具栏（选择、平移、绘图、形状、文本等）');
+    console.log('  • 灵感库系统（角色/场景/道具分类，带传送门动画）');
+    console.log('  • 图层面板（显示/隐藏、锁定，带传送门动画）');
+    console.log('  • 画布绘图（路径绘制、图片上传）');
+    console.log('  • 撤销/重做历史记录');
+    console.log('  • AI提示词输入（图片/视频模式，快捷效果）');
+    console.log('  • 设置面板（多语言、主题、画布背景）');
+    console.log('  • IndexedDB本地存储');
+    console.log('  • 类Lovart动画效果');
+    console.log('  • 🔥 Gemini API 图像生成（支持参考图像）');
+    console.log('%c⚠️  使用说明：', 'color: #f59e0b; font-weight: bold');
+    console.log('  • 在Gemini Canvas中运行：API Key会自动注入');
+    console.log('  • 在本地运行：需在代码中设置 API_KEY 变量');
+    console.log('  • 选中画布上的图像后生成，可作为参考图像');
+    console.log('  • 图像生成失败会自动重试3次');
+  </script>
+</body>
+</html>
+
