@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@google/genai": "^1.17.0",
+    "@tiptap/core": "^3.20.0",
     "@tiptap/extension-mention": "^3.20.0",
     "@tiptap/pm": "^3.20.0",
     "@tiptap/react": "^3.20.0",

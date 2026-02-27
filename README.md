@@ -8,24 +8,26 @@ A modern AI-powered infinite canvas designed for creative professionals.
 [![Inspired by Lovart](https://img.shields.io/badge/UI%20Inspired%20by-Lovart-ff69b4?style=flat-square)](https://lovart.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](LICENSE)
 
+**[🇨🇳 中文文档](DOCKER_GUIDE.md#-中文文档)** · **[🇬🇧 English](#project-overview)**
+
 </div>
 
 ---
 
 ## Project overview
 
-MakingLovart is a web-based infinite canvas inspired by Lovart. It merges flexible drawing tools, a layered workspace and an organized inspiration library with AI-driven image/video generation (via Google Gemini) to accelerate creative workflows.
+MakingLovart is a web-based infinite canvas inspired by Lovart. It combines flexible drawing tools, a layered workspace and an organized inspiration library with AI-driven image/video generation (via Google Gemini) to accelerate creative workflows.
 
-This repository is a learning project — feedback and contributions are welcome.
+This repo is a learning project — contributions and feedback are welcome.
 
 ![MakingLovart preview](show.jpg)
 
 ## Highlights
 
-- Lovart-inspired minimalist UI with collapsible panels and smooth transitions
-- Organized inspiration library: Characters, Scenes, Props (drag-and-drop to canvas)
+- Minimalist Lovart-inspired UI with collapsible panels
+- Organized inspiration library (Characters, Scenes, Props)
 - Gemini-powered AI: text→image, image editing, inpainting, experimental video
-- Full layer system: lock, hide, rename, reorder
+- Layer system: lock, hide, rename, reorder
 - Multiple boards with local auto-save
 
 ## Quick start
@@ -42,19 +44,7 @@ npm install
 
 2) (Optional) Configure Gemini API key
 
-If you want AI features, add your key to an env file. Example env var used by the app:
-
-```env
-VITE_GEMINI_API_KEY=your_key_here
-```
-
-Copy `.env.example` to `.env.local` (Windows):
-
-```bash
-copy .env.example .env.local
-```
-
-Note: core whiteboard features work without an API key.
+Add your key to `.env.local` (copy from `.env.example`) or set `VITE_GEMINI_API_KEY` in your environment.
 
 3) Run development server
 
@@ -66,19 +56,7 @@ Open http://localhost:5173
 
 ## Docker
 
-Use Docker Compose to run in a container:
-
-```bash
-docker-compose up -d
-```
-
-Or use the Makefile:
-
-```bash
-make up
-```
-
-See `DOCKER_GUIDE.md` for deployment details and environment options.
+A full bilingual Docker guide is available in `DOCKER_GUIDE.md` (includes Chinese and English sections, Nginx/Caddy/Traefik examples and common troubleshooting).
 
 ## Tech stack
 
@@ -88,16 +66,9 @@ See `DOCKER_GUIDE.md` for deployment details and environment options.
 - Google Gemini (AI)
 - localStorage for persistence
 
-## Roadmap (selected)
-
-- Real-time collaboration
-- Cloud sync
-- Multi-model AI support (Stable Diffusion, etc.)
-- Plugin system and export improvements
-
 ## Contributing
 
-Fork, create a branch, commit, push and open a PR. For details see `CONTRIBUTING.md`.
+Fork, create a branch, commit, push and open a PR. See `CONTRIBUTING.md` for details.
 
 ## Credits
 

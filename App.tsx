@@ -20,6 +20,7 @@ import { RightPanel } from './components/RightPanel';
 import { AssetAddModal } from './components/AssetAddModal';
 import { loadAssetLibrary, addAsset, removeAsset, renameAsset } from './utils/assetStorage';
 import { editImage, generateImageFromText, generateVideo } from './services/geminiService';
+import { splitImageByBanana } from './services/bananaService';
 import { fileToDataUrl } from './utils/fileUtils';
 import { translations } from './translations';
 
@@ -1331,6 +1332,76 @@ const App: React.FC = () => {
         document.body.removeChild(link);
     };
 
+    const handleSplitImageWithBanana = async (element: ImageElement) => {
+        try {
+            setIsLoading(true);
+            setError(null);
+            setProgressMessage('BANANA 正在识别图片并拆分图层...');
+
+            const layers = await splitImageByBanana({
+                href: element.href,
+                mimeType: element.mimeType,
+            });
+
+            const resolveLayerSize = (dataUrl: string): Promise<{ width: number; height: number }> =>
+                new Promise((resolve) => {
+                    const img = new Image();
+                    img.onload = () => resolve({ width: img.width, height: img.height });
+                    img.onerror = () => resolve({ width: element.width, height: element.height });
+                    img.src = dataUrl;
+                });
+
+            const normalizedLayers = await Promise.all(
+                layers.map(async (layer) => {
+                    if (layer.width > 0 && layer.height > 0) return layer;
+                    const size = await resolveLayerSize(layer.dataUrl);
+                    return { ...layer, width: size.width, height: size.height };
+                })
+            );
+
+            const insertedIds: string[] = [];
+            commitAction((prev) => {
+                const sourceIndex = prev.findIndex((el) => el.id === element.id);
+                const newLayerElements: ImageElement[] = normalizedLayers.map((layer, idx) => {
+                    const id = generateId();
+                    insertedIds.push(id);
+                    return {
+                        id,
+                        type: 'image',
+                        name: `${element.name || 'Image'} / ${layer.name || `Layer ${idx + 1}`}`,
+                        x: element.x + layer.offsetX,
+                        y: element.y + layer.offsetY,
+                        width: layer.width || element.width,
+                        height: layer.height || element.height,
+                        href: layer.dataUrl,
+                        mimeType: 'image/png',
+                    };
+                });
+
+                const next = [...prev];
+                if (sourceIndex >= 0) {
+                    next.splice(sourceIndex + 1, 0, ...newLayerElements);
+                } else {
+                    next.push(...newLayerElements);
+                }
+                return next;
+            });
+
+            if (insertedIds.length > 0) {
+                setSelectedElementIds(insertedIds);
+                setProgressMessage(`BANANA 已拆分 ${insertedIds.length} 个图层`);
+            } else {
+                setProgressMessage('');
+            }
+        } catch (err) {
+            const error = err as Error;
+            setError(`BANANA 拆层失败：${error.message}`);
+        } finally {
+            setIsLoading(false);
+            setTimeout(() => setProgressMessage(''), 1200);
+        }
+    };
+
     const handleStartCrop = (element: ImageElement) => {
         setActiveTool('select');
         setCroppingState({
@@ -2380,6 +2451,9 @@ const App: React.FC = () => {
                                                 setAddAssetModal({ open: true, dataUrl: href, mimeType, width, height });
                                             }} className="p-2 rounded hover:bg-gray-100 flex items-center justify-center">
                                                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/><path d="M12 8v8"/></svg>
+                                            </button>}
+                                        {element.type === 'image' && <button title="BANANA 一键识别拆层" onClick={() => handleSplitImageWithBanana(element)} className="p-2 rounded hover:bg-gray-100 flex items-center justify-center disabled:opacity-50" disabled={isLoading}>
+                                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="8" height="8" rx="1"></rect><rect x="13" y="3" width="8" height="8" rx="1"></rect><rect x="3" y="13" width="8" height="8" rx="1"></rect><path d="M13 17h8"></path><path d="M17 13v8"></path></svg>
                                             </button>}
                                         {element.type === 'video' && <a title={t('contextMenu.download')} href={element.href} download={`video-${element.id}.mp4`} className="p-2 rounded hover:bg-gray-100 flex items-center justify-center"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg></a>}
                                         {element.type === 'image' && <button title={t('contextMenu.crop')} onClick={() => handleStartCrop(element)} className="p-2 rounded hover:bg-gray-100 flex items-center justify-center"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6.13 1L6 16a2 2 0 0 0 2 2h15"></path><path d="M1 6.13L16 6a2 2 0 0 1 2 2v15"></path></svg></button>}
