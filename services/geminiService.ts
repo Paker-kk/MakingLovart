@@ -30,12 +30,33 @@ import { GoogleGenAI, Modality, GenerateContentResponse, GenerateVideosOperation
 
 // 从环境变量获取 API Key
 const API_KEY = process.env.API_KEY;
-if (!API_KEY) {
-  throw new Error("API_KEY environment variable is not set");
+let runtimeConfig: {
+  apiKey?: string;
+  imageModel?: string;
+  textToImageModel?: string;
+  videoModel?: string;
+} = {};
+
+export function setGeminiRuntimeConfig(config: {
+  apiKey?: string;
+  imageModel?: string;
+  textToImageModel?: string;
+  videoModel?: string;
+}) {
+  runtimeConfig = { ...runtimeConfig, ...config };
 }
 
-// 初始化 Gemini AI 客户端
-const ai = new GoogleGenAI({ apiKey: API_KEY });
+function getApiKey(): string {
+  const key = runtimeConfig.apiKey || API_KEY;
+  if (!key) {
+    throw new Error("Gemini API key is not set. Please configure it in settings.");
+  }
+  return key;
+}
+
+function getClient() {
+  return new GoogleGenAI({ apiKey: getApiKey() });
+}
 
 /**
  * 【类型定义】图像输入格式
@@ -110,9 +131,10 @@ export async function editImage(
     : [...imageParts, textPart];            // 无遮罩：图片+提示词
 
   try {
+    const ai = getClient();
     // 步骤5：调用 Gemini API
     const response: GenerateContentResponse = await ai.models.generateContent({
-      model: 'gemini-2.5-flash-image-preview',  // 使用 Gemini 2.5 Flash 图像模型
+      model: runtimeConfig.imageModel || 'gemini-2.5-flash-image-preview',  // 使用 Gemini 2.5 Flash 图像模型
       contents: {
         parts: parts,  // 传入组装好的内容
       },
@@ -192,8 +214,9 @@ export async function editImage(
  */
 export async function generateImageFromText(prompt: string): Promise<{ newImageBase64: string | null; newImageMimeType: string | null; textResponse: string | null; }> {
   try {
+    const ai = getClient();
     const response = await ai.models.generateImages({
-        model: 'imagen-4.0-generate-001',  // 使用 Imagen 4.0 模型
+        model: runtimeConfig.textToImageModel || 'imagen-4.0-generate-001',  // 使用 Imagen 4.0 模型
         prompt: prompt,
         config: {
           numberOfImages: 1,              // 生成1张图片
@@ -261,6 +284,7 @@ export async function generateVideo(
   onProgress: (message: string) => void,
   image?: ImageInput
 ): Promise<{ videoBlob: Blob; mimeType: string }> {
+  const ai = getClient();
   // 步骤1：初始化
   onProgress('Initializing video generation...');
   
@@ -272,7 +296,7 @@ export async function generateVideo(
 
   // 步骤3：提交视频生成请求
   let operation: GenerateVideosOperation = await ai.models.generateVideos({
-    model: 'veo-2.0-generate-001',  // 使用 Veo 2.0 模型
+    model: runtimeConfig.videoModel || 'veo-2.0-generate-001',  // 使用 Veo 2.0 模型
     prompt: prompt,
     image: imagePart,
     config: {
@@ -313,7 +337,7 @@ export async function generateVideo(
 
   // 步骤8：下载视频文件
   onProgress('Downloading generated video...');
-  const response = await fetch(`${downloadLink}&key=${API_KEY}`);
+  const response = await fetch(`${downloadLink}&key=${getApiKey()}`);
   if (!response.ok) {
     throw new Error(`Failed to download video: ${response.statusText}`);
   }

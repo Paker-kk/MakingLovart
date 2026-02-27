@@ -32,6 +32,12 @@ interface PromptBarProps {
     setGenerationMode: (mode: GenerationMode) => void;
     videoAspectRatio: '16:9' | '9:16';
     setVideoAspectRatio: (ratio: '16:9' | '9:16') => void;
+    selectedImageModel?: string;
+    selectedVideoModel?: string;
+    imageModelOptions?: string[];
+    videoModelOptions?: string[];
+    onImageModelChange?: (model: string) => void;
+    onVideoModelChange?: (model: string) => void;
     /** 当前画布上所有元素（用于 @ 引用菜单） */
     canvasElements?: Element[];
     /** 生成时回调：通知父组件本次携带了哪些 @引用元素的 id 列表 */
@@ -83,6 +89,12 @@ export const PromptBar: React.FC<PromptBarProps> = ({
     setGenerationMode,
     videoAspectRatio,
     setVideoAspectRatio,
+    selectedImageModel,
+    selectedVideoModel,
+    imageModelOptions = [],
+    videoModelOptions = [],
+    onImageModelChange,
+    onVideoModelChange,
     canvasElements = [],
     onMentionedElementIds,
 }) => {
@@ -223,6 +235,32 @@ export const PromptBar: React.FC<PromptBarProps> = ({
                             </svg>
                         </button>
                     </div>
+                )}
+
+                {/* 2.5 模型快捷切换 */}
+                {generationMode === 'image' && imageModelOptions.length > 0 && (
+                    <select
+                        value={selectedImageModel}
+                        onChange={(e) => onImageModelChange?.(e.target.value)}
+                        className="flex-shrink-0 text-xs bg-neutral-100 rounded-full px-2.5 py-1.5 text-neutral-700 border border-transparent focus:outline-none"
+                        title="图片模型"
+                    >
+                        {imageModelOptions.map(model => (
+                            <option key={model} value={model}>{model}</option>
+                        ))}
+                    </select>
+                )}
+                {generationMode === 'video' && videoModelOptions.length > 0 && (
+                    <select
+                        value={selectedVideoModel}
+                        onChange={(e) => onVideoModelChange?.(e.target.value)}
+                        className="flex-shrink-0 text-xs bg-neutral-100 rounded-full px-2.5 py-1.5 text-neutral-700 border border-transparent focus:outline-none"
+                        title="视频模型"
+                    >
+                        {videoModelOptions.map(model => (
+                            <option key={model} value={model}>{model}</option>
+                        ))}
+                    </select>
                 )}
 
                 {/* 3. 快捷提示词 */}

@@ -21,11 +21,36 @@ export interface BananaSplitLayer {
   offsetY: number;
 }
 
+export type BananaAgentTask = "upscale" | "remove-background" | "enhance";
+
+export interface BananaAgentResult {
+  dataUrl: string;
+  mimeType: string;
+  width: number;
+  height: number;
+}
+
 type RawLayer = Record<string, unknown>;
 
 const BANANA_API_URL =
   process.env.BANANA_API_URL || "https://api.banana.dev/v1/vision/split-layers";
 const BANANA_API_KEY = process.env.BANANA_API_KEY || "";
+const BANANA_AGENT_API_URL =
+  process.env.BANANA_AGENT_API_URL || "https://api.banana.dev/v1/vision/agent";
+
+let runtimeBananaConfig: {
+  apiKey?: string;
+  splitUrl?: string;
+  agentUrl?: string;
+} = {};
+
+export function setBananaRuntimeConfig(config: {
+  apiKey?: string;
+  splitUrl?: string;
+  agentUrl?: string;
+}) {
+  runtimeBananaConfig = { ...runtimeBananaConfig, ...config };
+}
 
 function toDataUrl(base64: string, mimeType: string): string {
   if (base64.startsWith("data:")) return base64;
@@ -82,11 +107,12 @@ export async function splitImageByBanana(
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
-  if (BANANA_API_KEY) {
-    headers.Authorization = `Bearer ${BANANA_API_KEY}`;
+  const key = runtimeBananaConfig.apiKey || BANANA_API_KEY;
+  if (key) {
+    headers.Authorization = `Bearer ${key}`;
   }
 
-  const response = await fetch(BANANA_API_URL, {
+  const response = await fetch(runtimeBananaConfig.splitUrl || BANANA_API_URL, {
     method: "POST",
     headers,
     body: JSON.stringify({
@@ -115,6 +141,83 @@ export async function splitImageByBanana(
 
   if (normalized.length === 0) {
     throw new Error("BANANA API 返回了图层，但未包含可用图像数据。");
+  }
+
+  return normalized;
+}
+
+function normalizeAgentImage(
+  raw: Record<string, unknown>,
+  fallbackMimeType: string
+): BananaAgentResult | null {
+  const mimeType =
+    (typeof raw.mimeType === "string" && raw.mimeType) ||
+    (typeof raw.mime_type === "string" && raw.mime_type) ||
+    fallbackMimeType ||
+    "image/png";
+
+  const base64 =
+    (typeof raw.imageBase64 === "string" && raw.imageBase64) ||
+    (typeof raw.base64 === "string" && raw.base64) ||
+    (typeof raw.image_data === "string" && raw.image_data) ||
+    (typeof raw.dataUrl === "string" && raw.dataUrl) ||
+    (typeof raw.image_url === "string" && raw.image_url);
+
+  if (!base64) return null;
+
+  return {
+    dataUrl: toDataUrl(base64, mimeType),
+    mimeType,
+    width: asNumber(raw.width, 0),
+    height: asNumber(raw.height, 0),
+  };
+}
+
+export async function runBananaImageAgent(
+  image: BananaImageInput,
+  task: BananaAgentTask,
+  options?: Record<string, unknown>
+): Promise<BananaAgentResult> {
+  const base64Payload = image.href.includes(",")
+    ? image.href.split(",")[1]
+    : image.href;
+
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  const key = runtimeBananaConfig.apiKey || BANANA_API_KEY;
+  if (key) {
+    headers.Authorization = `Bearer ${key}`;
+  }
+
+  const response = await fetch(runtimeBananaConfig.agentUrl || BANANA_AGENT_API_URL, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      task,
+      image: {
+        data: base64Payload,
+        mimeType: image.mimeType,
+      },
+      options: options || {},
+    }),
+  });
+
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new Error(`BANANA Agent 请求失败 (${response.status}): ${text || response.statusText}`);
+  }
+
+  const json = (await response.json()) as Record<string, unknown>;
+  const candidate =
+    (json.result as Record<string, unknown>) ||
+    (json.image as Record<string, unknown>) ||
+    (json.data as Record<string, unknown>) ||
+    json;
+
+  const normalized = normalizeAgentImage(candidate, image.mimeType);
+  if (!normalized) {
+    throw new Error("BANANA Agent 未返回可用图片数据。");
   }
 
   return normalized;

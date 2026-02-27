@@ -126,3 +126,26 @@ export interface AssetLibrary {
   scene: AssetItem[];
   prop: AssetItem[];
 }
+
+// API Key & Model Preferences
+export type AIProvider = 'openai' | 'anthropic' | 'google' | 'stability' | 'qwen' | 'banana' | 'custom';
+export type AICapability = 'text' | 'image' | 'video' | 'agent';
+
+export interface UserApiKey {
+  id: string;
+  provider: AIProvider;
+  key: string;
+  baseUrl?: string;
+  name?: string;
+  isDefault?: boolean;
+  status?: 'unknown' | 'ok' | 'error';
+  createdAt: number;
+  updatedAt: number;
+}
+
+export interface ModelPreference {
+  textModel: string;
+  imageModel: string;
+  videoModel: string;
+  agentModel: string;
+}

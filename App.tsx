@@ -13,14 +13,14 @@ import { LayerPanel } from './components/LayerPanel';
 import { LayerPanelMinimizable } from './components/LayerPanelMinimizable';
 import { LayerToggleButton } from './components/LayerToggleButton';
 import { BoardPanel } from './components/BoardPanel';
-import type { Tool, Point, Element, ImageElement, PathElement, ShapeElement, TextElement, ArrowElement, UserEffect, LineElement, WheelAction, GroupElement, Board, VideoElement, AssetLibrary, AssetCategory, AssetItem } from './types';
+import type { Tool, Point, Element, ImageElement, PathElement, ShapeElement, TextElement, ArrowElement, UserEffect, LineElement, WheelAction, GroupElement, Board, VideoElement, AssetLibrary, AssetCategory, AssetItem, UserApiKey, ModelPreference, AIProvider } from './types';
 import { AssetLibraryPanel } from './components/AssetLibraryPanel';
 import { InspirationPanel } from './components/InspirationPanel';
 import { RightPanel } from './components/RightPanel';
 import { AssetAddModal } from './components/AssetAddModal';
 import { loadAssetLibrary, addAsset, removeAsset, renameAsset } from './utils/assetStorage';
-import { editImage, generateImageFromText, generateVideo } from './services/geminiService';
-import { splitImageByBanana } from './services/bananaService';
+import { editImage, generateImageFromText, generateVideo, setGeminiRuntimeConfig } from './services/geminiService';
+import { splitImageByBanana, runBananaImageAgent, setBananaRuntimeConfig } from './services/bananaService';
 import { fileToDataUrl } from './utils/fileUtils';
 import { translations } from './translations';
 
@@ -362,6 +362,16 @@ const createNewBoard = (name: string): Board => {
     };
 };
 
+const DEFAULT_MODEL_PREFS: ModelPreference = {
+    textModel: 'gemini-2.5-pro',
+    imageModel: 'gemini-2.5-flash-image-preview',
+    videoModel: 'veo-2.0-generate-001',
+    agentModel: 'banana-vision-v1',
+};
+
+const IMAGE_MODEL_OPTIONS = ['gemini-2.5-flash-image-preview', 'imagen-4.0-generate-001'];
+const VIDEO_MODEL_OPTIONS = ['veo-2.0-generate-001'];
+
 const App: React.FC = () => {
     const [boards, setBoards] = useState<Board[]>(() => {
         // TODO: Load from localStorage
@@ -417,6 +427,22 @@ const App: React.FC = () => {
     const [language, setLanguage] = useState<'en' | 'zho'>('en');
     const [uiTheme, setUiTheme] = useState({ color: '#FFFFFF', opacity: 0.9 });
     const [buttonTheme, setButtonTheme] = useState({ color: '#111827', opacity: 1 });
+    const [userApiKeys, setUserApiKeys] = useState<UserApiKey[]>(() => {
+        try {
+            const raw = localStorage.getItem('userApiKeys.v1');
+            return raw ? JSON.parse(raw) : [];
+        } catch {
+            return [];
+        }
+    });
+    const [modelPreference, setModelPreference] = useState<ModelPreference>(() => {
+        try {
+            const raw = localStorage.getItem('modelPreference.v1');
+            return raw ? { ...DEFAULT_MODEL_PREFS, ...JSON.parse(raw) } : DEFAULT_MODEL_PREFS;
+        } catch {
+            return DEFAULT_MODEL_PREFS;
+        }
+    });
     
     const [userEffects, setUserEffects] = useState<UserEffect[]>(() => {
         try {
@@ -461,12 +487,71 @@ const App: React.FC = () => {
         }
     }, [userEffects]);
 
+    useEffect(() => {
+        localStorage.setItem('userApiKeys.v1', JSON.stringify(userApiKeys));
+    }, [userApiKeys]);
+
+    useEffect(() => {
+        localStorage.setItem('modelPreference.v1', JSON.stringify(modelPreference));
+    }, [modelPreference]);
+
+    const getDefaultKeyByProvider = useCallback((provider: AIProvider) => {
+        const byProvider = userApiKeys.filter(key => key.provider === provider);
+        return byProvider.find(key => key.isDefault) || byProvider[0];
+    }, [userApiKeys]);
+
+    useEffect(() => {
+        const googleKey = getDefaultKeyByProvider('google');
+        const bananaKey = getDefaultKeyByProvider('banana');
+        setGeminiRuntimeConfig({
+            apiKey: googleKey?.key,
+            imageModel: modelPreference.imageModel.startsWith('gemini') ? modelPreference.imageModel : undefined,
+            textToImageModel: modelPreference.imageModel.startsWith('imagen') ? modelPreference.imageModel : undefined,
+            videoModel: modelPreference.videoModel.startsWith('veo') ? modelPreference.videoModel : undefined,
+        });
+        setBananaRuntimeConfig({
+            apiKey: bananaKey?.key,
+            splitUrl: bananaKey?.baseUrl ? `${bananaKey.baseUrl.replace(/\/$/, '')}/split-layers` : undefined,
+            agentUrl: bananaKey?.baseUrl ? `${bananaKey.baseUrl.replace(/\/$/, '')}/agent` : undefined,
+        });
+    }, [getDefaultKeyByProvider, modelPreference]);
+
     const handleAddUserEffect = useCallback((effect: UserEffect) => {
         setUserEffects(prev => [...prev, effect]);
     }, []);
 
     const handleDeleteUserEffect = useCallback((id: string) => {
         setUserEffects(prev => prev.filter(effect => effect.id !== id));
+    }, []);
+
+    const handleAddApiKey = useCallback((payload: Omit<UserApiKey, 'id' | 'createdAt' | 'updatedAt'>) => {
+        const now = Date.now();
+        const nextKey: UserApiKey = {
+            ...payload,
+            id: generateId(),
+            createdAt: now,
+            updatedAt: now,
+        };
+        setUserApiKeys(prev => {
+            const sameProvider = prev.filter(k => k.provider === payload.provider);
+            const isFirstOfProvider = sameProvider.length === 0;
+            const withDefault = (payload.isDefault || isFirstOfProvider)
+                ? prev.map(k => k.provider === payload.provider ? { ...k, isDefault: false } : k)
+                : prev;
+            return [{ ...nextKey, isDefault: payload.isDefault || isFirstOfProvider }, ...withDefault];
+        });
+    }, []);
+
+    const handleDeleteApiKey = useCallback((id: string) => {
+        setUserApiKeys(prev => prev.filter(k => k.id !== id));
+    }, []);
+
+    const handleSetDefaultApiKey = useCallback((id: string) => {
+        setUserApiKeys(prev => {
+            const target = prev.find(k => k.id === id);
+            if (!target) return prev;
+            return prev.map(k => k.provider === target.provider ? { ...k, isDefault: k.id === id } : k);
+        });
     }, []);
 
     const t = useCallback((key: string, ...args: any[]): any => {
@@ -1332,6 +1417,42 @@ const App: React.FC = () => {
         document.body.removeChild(link);
     };
 
+    const resolveImageSize = (dataUrl: string, fallback: { width: number; height: number }): Promise<{ width: number; height: number }> =>
+        new Promise((resolve) => {
+            const img = new Image();
+            img.onload = () => resolve({ width: img.width, height: img.height });
+            img.onerror = () => resolve(fallback);
+            img.src = dataUrl;
+        });
+
+    const insertImageAgentResult = async (
+        source: ImageElement,
+        dataUrl: string,
+        nameSuffix: string,
+        resizeByScale?: number,
+        outputMimeType?: string
+    ) => {
+        const rawSize = await resolveImageSize(dataUrl, { width: source.width, height: source.height });
+        const scale = resizeByScale && resizeByScale > 0 ? resizeByScale : 1;
+        const width = Math.max(1, rawSize.width / scale);
+        const height = Math.max(1, rawSize.height / scale);
+
+        const newImage: ImageElement = {
+            id: generateId(),
+            type: 'image',
+            name: `${source.name || 'Image'} / ${nameSuffix}`,
+            x: source.x + 24,
+            y: source.y + 24,
+            width,
+            height,
+            href: dataUrl,
+            mimeType: outputMimeType || source.mimeType,
+        };
+
+        commitAction(prev => [...prev, newImage]);
+        setSelectedElementIds([newImage.id]);
+    };
+
     const handleSplitImageWithBanana = async (element: ImageElement) => {
         try {
             setIsLoading(true);
@@ -1343,25 +1464,20 @@ const App: React.FC = () => {
                 mimeType: element.mimeType,
             });
 
-            const resolveLayerSize = (dataUrl: string): Promise<{ width: number; height: number }> =>
-                new Promise((resolve) => {
-                    const img = new Image();
-                    img.onload = () => resolve({ width: img.width, height: img.height });
-                    img.onerror = () => resolve({ width: element.width, height: element.height });
-                    img.src = dataUrl;
-                });
-
             const normalizedLayers = await Promise.all(
                 layers.map(async (layer) => {
                     if (layer.width > 0 && layer.height > 0) return layer;
-                    const size = await resolveLayerSize(layer.dataUrl);
+                    const size = await resolveImageSize(layer.dataUrl, { width: element.width, height: element.height });
                     return { ...layer, width: size.width, height: size.height };
                 })
             );
 
             const insertedIds: string[] = [];
+            const hideOriginalAfterSplit = true;
             commitAction((prev) => {
                 const sourceIndex = prev.findIndex((el) => el.id === element.id);
+                const groupId = generateId();
+
                 const newLayerElements: ImageElement[] = normalizedLayers.map((layer, idx) => {
                     const id = generateId();
                     insertedIds.push(id);
@@ -1375,14 +1491,35 @@ const App: React.FC = () => {
                         height: layer.height || element.height,
                         href: layer.dataUrl,
                         mimeType: 'image/png',
+                        parentId: groupId,
                     };
                 });
 
+                const minX = Math.min(...newLayerElements.map(layer => layer.x));
+                const minY = Math.min(...newLayerElements.map(layer => layer.y));
+                const maxX = Math.max(...newLayerElements.map(layer => layer.x + layer.width));
+                const maxY = Math.max(...newLayerElements.map(layer => layer.y + layer.height));
+                const groupElement: GroupElement = {
+                    id: groupId,
+                    type: 'group',
+                    name: `${element.name || 'Image'} / Banana Group`,
+                    x: minX,
+                    y: minY,
+                    width: Math.max(1, maxX - minX),
+                    height: Math.max(1, maxY - minY),
+                };
+
                 const next = [...prev];
                 if (sourceIndex >= 0) {
-                    next.splice(sourceIndex + 1, 0, ...newLayerElements);
+                    next.splice(sourceIndex + 1, 0, ...newLayerElements, groupElement);
                 } else {
-                    next.push(...newLayerElements);
+                    next.push(...newLayerElements, groupElement);
+                }
+                if (hideOriginalAfterSplit) {
+                    const idx = next.findIndex(el => el.id === element.id);
+                    if (idx >= 0) {
+                        next[idx] = { ...next[idx], isVisible: false };
+                    }
                 }
                 return next;
             });
@@ -1396,6 +1533,47 @@ const App: React.FC = () => {
         } catch (err) {
             const error = err as Error;
             setError(`BANANA 拆层失败：${error.message}`);
+        } finally {
+            setIsLoading(false);
+            setTimeout(() => setProgressMessage(''), 1200);
+        }
+    };
+
+    const handleUpscaleImageWithBanana = async (element: ImageElement) => {
+        try {
+            setIsLoading(true);
+            setError(null);
+            setProgressMessage('BANANA Agent 正在进行高清放大...');
+            const result = await runBananaImageAgent(
+                { href: element.href, mimeType: element.mimeType },
+                'upscale',
+                { scale: 2 }
+            );
+            await insertImageAgentResult(element, result.dataUrl, 'Upscaled x2', 2, result.mimeType);
+            setProgressMessage('高清放大完成');
+        } catch (err) {
+            const error = err as Error;
+            setError(`BANANA 高清放大失败：${error.message}`);
+        } finally {
+            setIsLoading(false);
+            setTimeout(() => setProgressMessage(''), 1200);
+        }
+    };
+
+    const handleRemoveBackgroundWithBanana = async (element: ImageElement) => {
+        try {
+            setIsLoading(true);
+            setError(null);
+            setProgressMessage('BANANA Agent 正在去除背景...');
+            const result = await runBananaImageAgent(
+                { href: element.href, mimeType: element.mimeType },
+                'remove-background'
+            );
+            await insertImageAgentResult(element, result.dataUrl, 'Background Removed', undefined, result.mimeType);
+            setProgressMessage('去背景完成');
+        } catch (err) {
+            const error = err as Error;
+            setError(`BANANA 去背景失败：${error.message}`);
         } finally {
             setIsLoading(false);
             setTimeout(() => setProgressMessage(''), 1200);
@@ -2127,6 +2305,12 @@ const App: React.FC = () => {
                 setButtonTheme={setButtonTheme}
                 wheelAction={wheelAction}
                 setWheelAction={setWheelAction}
+                userApiKeys={userApiKeys}
+                onAddApiKey={handleAddApiKey}
+                onDeleteApiKey={handleDeleteApiKey}
+                onSetDefaultApiKey={handleSetDefaultApiKey}
+                modelPreference={modelPreference}
+                setModelPreference={setModelPreference}
                 t={t}
             />
             <Toolbar
@@ -2427,7 +2611,7 @@ const App: React.FC = () => {
                                 }
                                 if (element.type === 'text') toolbarScreenWidth = 220;
                                 if (element.type === 'arrow' || element.type === 'line') toolbarScreenWidth = 220;
-                                if (element.type === 'image') toolbarScreenWidth = 340;
+                                if (element.type === 'image') toolbarScreenWidth = 500;
                                 if (element.type === 'video') toolbarScreenWidth = 160;
                                 if (element.type === 'group') toolbarScreenWidth = 80;
 
@@ -2454,6 +2638,12 @@ const App: React.FC = () => {
                                             </button>}
                                         {element.type === 'image' && <button title="BANANA 一键识别拆层" onClick={() => handleSplitImageWithBanana(element)} className="p-2 rounded hover:bg-gray-100 flex items-center justify-center disabled:opacity-50" disabled={isLoading}>
                                                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="8" height="8" rx="1"></rect><rect x="13" y="3" width="8" height="8" rx="1"></rect><rect x="3" y="13" width="8" height="8" rx="1"></rect><path d="M13 17h8"></path><path d="M17 13v8"></path></svg>
+                                            </button>}
+                                        {element.type === 'image' && <button title="BANANA Agent：高清放大 x2" onClick={() => handleUpscaleImageWithBanana(element)} className="p-2 rounded hover:bg-gray-100 flex items-center justify-center disabled:opacity-50" disabled={isLoading}>
+                                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="7"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line><line x1="11" y1="8" x2="11" y2="14"></line><line x1="8" y1="11" x2="14" y2="11"></line></svg>
+                                            </button>}
+                                        {element.type === 'image' && <button title="BANANA Agent：智能去背景" onClick={() => handleRemoveBackgroundWithBanana(element)} className="p-2 rounded hover:bg-gray-100 flex items-center justify-center disabled:opacity-50" disabled={isLoading}>
+                                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3l18 18"></path><path d="M20 12a8 8 0 0 1-11.31 7.31"></path><path d="M4 12a8 8 0 0 1 11.31-7.31"></path></svg>
                                             </button>}
                                         {element.type === 'video' && <a title={t('contextMenu.download')} href={element.href} download={`video-${element.id}.mp4`} className="p-2 rounded hover:bg-gray-100 flex items-center justify-center"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg></a>}
                                         {element.type === 'image' && <button title={t('contextMenu.crop')} onClick={() => handleStartCrop(element)} className="p-2 rounded hover:bg-gray-100 flex items-center justify-center"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6.13 1L6 16a2 2 0 0 0 2 2h15"></path><path d="M1 6.13L16 6a2 2 0 0 1 2 2v15"></path></svg></button>}
@@ -2603,6 +2793,12 @@ const App: React.FC = () => {
                 setGenerationMode={setGenerationMode}
                 videoAspectRatio={videoAspectRatio}
                 setVideoAspectRatio={setVideoAspectRatio}
+                selectedImageModel={modelPreference.imageModel}
+                selectedVideoModel={modelPreference.videoModel}
+                imageModelOptions={IMAGE_MODEL_OPTIONS}
+                videoModelOptions={VIDEO_MODEL_OPTIONS}
+                onImageModelChange={(model) => setModelPreference(prev => ({ ...prev, imageModel: model }))}
+                onVideoModelChange={(model) => setModelPreference(prev => ({ ...prev, videoModel: model }))}
                 canvasElements={elements}
                 onMentionedElementIds={setMentionedElementIds}
                 />
