@@ -1962,7 +1962,10 @@ const App: React.FC = () => {
 
                 // Append @mentioned reference images
                 const mentionRefs = mentionedImageElements.map(el => ({ href: el.href, mimeType: el.mimeType }));
-                const result = await editImage([...imagesToProcess, ...mentionRefs, ...characterReferenceImages], effectivePrompt);
+                const result = await editImage(
+                    [...imagesToProcess, ...mentionRefs, ...attachmentReferenceImages, ...characterReferenceImages],
+                    effectivePrompt
+                );
 
                 if (result.newImageBase64 && result.newImageMimeType) {
                     const { newImageBase64, newImageMimeType } = result;
@@ -1997,7 +2000,7 @@ const App: React.FC = () => {
                 // No canvas selection, but user @mentioned image elements → use editImage as reference-guided generation
                 setProgressMessage('Generating with reference images...');
                 const mentionRefs = mentionedImageElements.map(el => ({ href: el.href, mimeType: el.mimeType }));
-                const result = await editImage([...mentionRefs, ...characterReferenceImages], effectivePrompt);
+                const result = await editImage([...mentionRefs, ...attachmentReferenceImages, ...characterReferenceImages], effectivePrompt);
 
                 if (result.newImageBase64 && result.newImageMimeType) {
                     const { newImageBase64, newImageMimeType } = result;
@@ -2025,8 +2028,9 @@ const App: React.FC = () => {
 
             } else {
                 // Generate from scratch
-                const result = characterReferenceImages.length > 0
-                    ? await editImage(characterReferenceImages, effectivePrompt)
+                const baseRefs = [...attachmentReferenceImages, ...characterReferenceImages];
+                const result = baseRefs.length > 0
+                    ? await editImage(baseRefs, effectivePrompt)
                     : await generateImageFromText(effectivePrompt);
 
                 if (result.newImageBase64 && result.newImageMimeType) {
@@ -2069,6 +2073,34 @@ const App: React.FC = () => {
             setIsLoading(false); 
         }
     };
+
+    const handleRunNodeWorkflow = async (opts: { autoEnhance: boolean; enhanceMode: PromptEnhanceMode; stylePreset?: string }) => {
+        let finalPrompt = prompt;
+        if (opts.autoEnhance && prompt.trim()) {
+            const enhanced = await handleEnhancePrompt({
+                prompt,
+                mode: opts.enhanceMode,
+                stylePreset: opts.stylePreset,
+            });
+            if (enhanced.enhancedPrompt?.trim()) {
+                finalPrompt = enhanced.enhancedPrompt.trim();
+                setPrompt(finalPrompt);
+            }
+        }
+        await handleGenerate(finalPrompt);
+    };
+
+    const handleCanvasImageDragStart = useCallback((image: ImageElement, e: React.DragEvent<SVGGElement>) => {
+        const payload = {
+            id: image.id,
+            name: image.name,
+            href: image.href,
+            mimeType: image.mimeType,
+        };
+        e.dataTransfer.setData('application/x-canvas-image', JSON.stringify(payload));
+        e.dataTransfer.setData('text/plain', image.name || image.id);
+        e.dataTransfer.effectAllowed = 'copy';
+    }, []);
     
     const handleDragOver = useCallback((e: React.DragEvent) => { e.preventDefault(); }, []);
     const handleDrop = useCallback((e: React.DragEvent) => { 
@@ -2457,18 +2489,20 @@ const App: React.FC = () => {
                 generateBoardThumbnail={(els) => generateBoardThumbnail(els, activeBoard.canvasBackgroundColor)}
             />
             {/* New Right Panel (multi-function: generate + inspiration) */}
-            <RightPanel
-                isMinimized={isInspirationMinimized}
-                onToggleMinimize={() => setIsInspirationMinimized(prev => !prev)}
-                library={assetLibrary}
-                onRemove={(cat, id) => setAssetLibrary(prev => removeAsset(prev, cat, id))}
-                onRename={(cat, id, name) => setAssetLibrary(prev => renameAsset(prev, cat, id, name))}
-                onGenerate={(prompt) => {
-                    setPrompt(prompt);
-                    handleGenerateFromText(prompt);
-                }}
-                onWidthChange={setRightPanelWidth}
-            />
+            {workspaceMode === 'whiteboard' && (
+                <RightPanel
+                    isMinimized={isInspirationMinimized}
+                    onToggleMinimize={() => setIsInspirationMinimized(prev => !prev)}
+                    library={assetLibrary}
+                    onRemove={(cat, id) => setAssetLibrary(prev => removeAsset(prev, cat, id))}
+                    onRename={(cat, id, name) => setAssetLibrary(prev => renameAsset(prev, cat, id, name))}
+                    onGenerate={(nextPrompt) => {
+                        setPrompt(nextPrompt);
+                        handleGenerate(nextPrompt);
+                    }}
+                    onWidthChange={setRightPanelWidth}
+                />
+            )}
             <CanvasSettings 
                 isOpen={isSettingsPanelOpen} 
                 onClose={() => setIsSettingsPanelOpen(false)} 
@@ -2490,34 +2524,38 @@ const App: React.FC = () => {
                 setModelPreference={setModelPreference}
                 t={t}
             />
-            <Toolbar
-                t={t}
-                activeTool={activeTool}
-                setActiveTool={setActiveTool}
-                drawingOptions={drawingOptions}
-                setDrawingOptions={setDrawingOptions}
-                onUpload={handleAddImageElement}
-                isCropping={!!croppingState}
-                onConfirmCrop={handleConfirmCrop}
-                onCancelCrop={handleCancelCrop}
-                onSettingsClick={() => setIsSettingsPanelOpen(true)}
-                onLayersClick={() => {}}
-                onBoardsClick={() => setIsBoardPanelOpen(prev => !prev)}
-                onAssetsClick={() => setIsInspirationMinimized(prev => !prev)}
-                onUndo={handleUndo}
-                onRedo={handleRedo}
-                isLayerPanelExpanded={!isLayerMinimized}
-                onHeightChange={() => { /* reserved for aligning external buttons under toolbar */ }}
-                onLeftChange={(left) => setToolbarLeft(left)}
-                canUndo={historyIndex > 0}
-                canRedo={historyIndex < history.length - 1}
-            />
-            {/* Layer Toggle Button - positioned at bottom of toolbar column */}
-            <LayerToggleButton
-                isLayerMinimized={isLayerMinimized}
-                onToggle={() => setIsLayerMinimized(prev => !prev)}
-                toolbarLeft={toolbarLeft}
-            />
+            {workspaceMode === 'whiteboard' && (
+                <>
+                    <Toolbar
+                        t={t}
+                        activeTool={activeTool}
+                        setActiveTool={setActiveTool}
+                        drawingOptions={drawingOptions}
+                        setDrawingOptions={setDrawingOptions}
+                        onUpload={handleAddImageElement}
+                        isCropping={!!croppingState}
+                        onConfirmCrop={handleConfirmCrop}
+                        onCancelCrop={handleCancelCrop}
+                        onSettingsClick={() => setIsSettingsPanelOpen(true)}
+                        onLayersClick={() => {}}
+                        onBoardsClick={() => setIsBoardPanelOpen(prev => !prev)}
+                        onAssetsClick={() => setIsInspirationMinimized(prev => !prev)}
+                        onUndo={handleUndo}
+                        onRedo={handleRedo}
+                        isLayerPanelExpanded={!isLayerMinimized}
+                        onHeightChange={() => { /* reserved for aligning external buttons under toolbar */ }}
+                        onLeftChange={(left) => setToolbarLeft(left)}
+                        canUndo={historyIndex > 0}
+                        canRedo={historyIndex < history.length - 1}
+                    />
+                    {/* Layer Toggle Button - positioned at bottom of toolbar column */}
+                    <LayerToggleButton
+                        isLayerMinimized={isLayerMinimized}
+                        onToggle={() => setIsLayerMinimized(prev => !prev)}
+                        toolbarLeft={toolbarLeft}
+                    />
+                </>
+            )}
             {addAssetModal?.open && (
                 <AssetAddModal 
                     isOpen={addAssetModal.open}
@@ -2539,76 +2577,68 @@ const App: React.FC = () => {
                     }}
                 />
             )}
-             {/* New Layer Panel (left side, minimizable) */}
-             <LayerPanelMinimizable
-                isMinimized={isLayerMinimized}
-                onToggleMinimize={() => setIsLayerMinimized(prev => !prev)}
-                elements={elements}
-                selectedElementIds={selectedElementIds}
-                onSelectElement={id => setSelectedElementIds(id ? [id] : [])}
-                onToggleVisibility={id => handlePropertyChange(id, { isVisible: !(elements.find(el => el.id === id)?.isVisible ?? true) })}
-                onToggleLock={id => handlePropertyChange(id, { isLocked: !(elements.find(el => el.id === id)?.isLocked ?? false) })}
-                onRenameElement={(id, name) => handlePropertyChange(id, { name })}
-                onReorder={(draggedId, targetId, position) => {
-                    commitAction(prev => {
-                        const newElements = [...prev];
-                        const draggedIndex = newElements.findIndex(el => el.id === draggedId);
-                        if (draggedIndex === -1) return prev;
+            {/* New Layer Panel (left side, minimizable) */}
+            {workspaceMode === 'whiteboard' && (
+                <LayerPanelMinimizable
+                    isMinimized={isLayerMinimized}
+                    onToggleMinimize={() => setIsLayerMinimized(prev => !prev)}
+                    elements={elements}
+                    selectedElementIds={selectedElementIds}
+                    onSelectElement={id => setSelectedElementIds(id ? [id] : [])}
+                    onToggleVisibility={id => handlePropertyChange(id, { isVisible: !(elements.find(el => el.id === id)?.isVisible ?? true) })}
+                    onToggleLock={id => handlePropertyChange(id, { isLocked: !(elements.find(el => el.id === id)?.isLocked ?? false) })}
+                    onRenameElement={(id, name) => handlePropertyChange(id, { name })}
+                    onReorder={(draggedId, targetId, position) => {
+                        commitAction(prev => {
+                            const newElements = [...prev];
+                            const draggedIndex = newElements.findIndex(el => el.id === draggedId);
+                            if (draggedIndex === -1) return prev;
 
-                        const [draggedItem] = newElements.splice(draggedIndex, 1);
-                        const targetIndex = newElements.findIndex(el => el.id === targetId);
-                        if (targetIndex === -1) {
-                            newElements.push(draggedItem); // Fallback
+                            const [draggedItem] = newElements.splice(draggedIndex, 1);
+                            const targetIndex = newElements.findIndex(el => el.id === targetId);
+                            if (targetIndex === -1) {
+                                newElements.push(draggedItem); // Fallback
+                                return newElements;
+                            }
+
+                            const finalIndex = position === 'before' ? targetIndex : targetIndex + 1;
+                            newElements.splice(finalIndex, 0, draggedItem);
+
                             return newElements;
-                        }
-                        
-                        const finalIndex = position === 'before' ? targetIndex : targetIndex + 1;
-                        newElements.splice(finalIndex, 0, draggedItem);
-                        
-                        return newElements;
-                    });
-                }}
-            />
+                        });
+                    }}
+                />
+            )}
             <div 
                 className="flex-grow relative overflow-hidden"
                 style={{
-                    paddingRight: `${rightPanelWidth + 32}px`,
-                    paddingBottom: croppingState ? '0px' : '96px',
+                    paddingRight: workspaceMode === 'whiteboard' ? `${rightPanelWidth + 32}px` : '0px',
+                    paddingBottom: workspaceMode === 'whiteboard' ? (croppingState ? '0px' : '96px') : '0px',
                     transition: 'padding-right 0.35s cubic-bezier(0.4, 0, 0.2, 1), padding-bottom 0.35s cubic-bezier(0.4, 0, 0.2, 1)'
                 }}
             >
                 {workspaceMode === 'node' && (
-                    <div className="absolute inset-6 z-[35] rounded-3xl border border-neutral-200/70 bg-white/90 backdrop-blur-xl shadow-2xl p-6 flex flex-col gap-4">
-                        <div className="flex items-center justify-between">
-                            <div>
-                                <h3 className="text-lg font-semibold text-neutral-900">节点工作流（Beta）</h3>
-                                <p className="text-xs text-neutral-500">白板与节点共用同一套 Agent 能力，后续可一键封装为模板。</p>
-                            </div>
-                            <button
-                                onClick={() => setWorkspaceMode('whiteboard')}
-                                className="text-xs px-3 py-1.5 rounded-full bg-neutral-100 hover:bg-neutral-200 text-neutral-700"
-                            >
-                                返回白板
-                            </button>
-                        </div>
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-                            <div className="rounded-2xl border border-neutral-200 p-3">
-                                <div className="text-xs text-neutral-500 mb-1">输入节点</div>
-                                <div className="text-sm text-neutral-800">📝 文本输入 / 🖼 参考图输入</div>
-                            </div>
-                            <div className="rounded-2xl border border-neutral-200 p-3">
-                                <div className="text-xs text-neutral-500 mb-1">Agent 节点</div>
-                                <div className="text-sm text-neutral-800">✨ 提示词润色 / 🔒 角色一致性锁定</div>
-                            </div>
-                            <div className="rounded-2xl border border-neutral-200 p-3">
-                                <div className="text-xs text-neutral-500 mb-1">输出节点</div>
-                                <div className="text-sm text-neutral-800">🎨 图像生成 / 🎬 视频生成</div>
-                            </div>
-                        </div>
-                        <div className="flex-1 rounded-2xl border border-dashed border-neutral-300 bg-neutral-50/70 flex items-center justify-center text-sm text-neutral-500">
-                            节点画布即将接入（当前版本先开放 Agent 能力和模式切换入口）
-                        </div>
-                    </div>
+                    <NodeWorkflowPanel
+                        prompt={prompt}
+                        setPrompt={setPrompt}
+                        generationMode={generationMode}
+                        setGenerationMode={setGenerationMode}
+                        selectedImageModel={modelPreference.imageModel}
+                        selectedVideoModel={modelPreference.videoModel}
+                        imageModelOptions={IMAGE_MODEL_OPTIONS}
+                        videoModelOptions={VIDEO_MODEL_OPTIONS}
+                        onImageModelChange={(model) => setModelPreference(prev => ({ ...prev, imageModel: model }))}
+                        onVideoModelChange={(model) => setModelPreference(prev => ({ ...prev, videoModel: model }))}
+                        attachments={chatAttachments}
+                        canvasImages={elements
+                            .filter((el): el is ImageElement => el.type === 'image')
+                            .map(el => ({ id: el.id, name: el.name, href: el.href, mimeType: el.mimeType }))}
+                        onRemoveAttachment={handleRemoveChatAttachment}
+                        onUploadFiles={handleAddAttachmentFiles}
+                        onDropCanvasImage={handleAddAttachmentFromCanvas}
+                        isRunning={isLoading || isEnhancingPrompt}
+                        onRunWorkflow={handleRunNodeWorkflow}
+                    />
                 )}
                 <svg
                     ref={svgRef}
@@ -2739,7 +2769,12 @@ const App: React.FC = () => {
                                 const hasBorderRadius = el.borderRadius && el.borderRadius > 0;
                                 const clipPathId = `clip-${el.id}`;
                                 return (
-                                    <g key={el.id} data-id={el.id}>
+                                    <g
+                                        key={el.id}
+                                        data-id={el.id}
+                                        draggable={workspaceMode === 'node'}
+                                        onDragStart={(e) => handleCanvasImageDragStart(el, e)}
+                                    >
                                         <image 
                                             transform={`translate(${el.x}, ${el.y})`} 
                                             href={el.href} 
@@ -2980,7 +3015,7 @@ const App: React.FC = () => {
                     );
                 })()}
             </div>
-            {!croppingState && (
+            {!croppingState && workspaceMode === 'whiteboard' && (
                 <div 
                     className="absolute bottom-0 left-0 right-0 z-[40] transition-all duration-300 ease-out flex justify-center pointer-events-none"
                     style={{

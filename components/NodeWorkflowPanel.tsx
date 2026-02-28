@@ -15,6 +15,7 @@ interface NodeWorkflowPanelProps {
     onImageModelChange?: (model: string) => void;
     onVideoModelChange?: (model: string) => void;
     attachments: ChatAttachment[];
+    canvasImages: Array<{ id: string; name?: string; href: string; mimeType: string }>;
     onRemoveAttachment: (id: string) => void;
     onUploadFiles: (files: FileList | File[]) => void;
     onDropCanvasImage: (payload: { id: string; name?: string; href: string; mimeType: string }) => void;
@@ -36,6 +37,7 @@ export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
     onImageModelChange,
     onVideoModelChange,
     attachments,
+    canvasImages,
     onRemoveAttachment,
     onUploadFiles,
     onDropCanvasImage,
@@ -86,6 +88,15 @@ export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
         if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
             onUploadFiles(e.dataTransfer.files);
         }
+    };
+
+    const handleCanvasThumbDrag = (
+        item: { id: string; name?: string; href: string; mimeType: string },
+        e: React.DragEvent<HTMLButtonElement>
+    ) => {
+        e.dataTransfer.setData('application/x-canvas-image', JSON.stringify(item));
+        e.dataTransfer.setData('text/plain', item.name || item.id);
+        e.dataTransfer.effectAllowed = 'copy';
     };
 
     const handleRun = async () => {
@@ -145,6 +156,23 @@ export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
                                     <div className="text-white/70">◻ 文生短视频</div>
                                     <div className="text-white/70">⌘ 图片反推提示词</div>
                                 </div>
+                                <div className="mt-4">
+                                    <div className="text-xs text-white/60 mb-2">画板图片（可拖拽到右侧 Chat）</div>
+                                    <div className="grid grid-cols-4 gap-2">
+                                        {canvasImages.slice(0, 12).map(item => (
+                                            <button
+                                                key={item.id}
+                                                draggable
+                                                onDragStart={(e) => handleCanvasThumbDrag(item, e)}
+                                                onClick={() => onDropCanvasImage(item)}
+                                                className="w-12 h-12 rounded-lg overflow-hidden border border-white/20 hover:border-emerald-300/70"
+                                                title={`拖拽或点击添加：${item.name || item.id}`}
+                                            >
+                                                <img src={item.href} alt={item.name || item.id} className="w-full h-full object-cover" />
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
                             </div>
 
                             <div className="rounded-2xl border border-white/15 bg-white/[0.03] p-4 backdrop-blur-md flex flex-col justify-between min-h-[260px]">
@@ -193,10 +221,11 @@ export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
                                         <div className="px-3 pb-3 flex flex-wrap gap-2">
                                             {attachments.map(item => (
                                                 <div key={item.id} className="relative w-14 h-14 rounded-lg overflow-hidden border border-white/20">
-                                                    <img src={item.href} className="w-full h-full object-cover" />
+                                                    <img src={item.href} alt={item.name} className="w-full h-full object-cover" />
                                                     <button
                                                         onClick={() => onRemoveAttachment(item.id)}
                                                         className="absolute top-0 right-0 w-5 h-5 text-[10px] bg-black/70 text-white"
+                                                        title="移除附件"
                                                     >
                                                         ×
                                                     </button>
@@ -215,13 +244,21 @@ export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
                                             上传图片
                                         </button>
                                         <label className="text-xs text-white/70 inline-flex items-center gap-1">
-                                            <input type="checkbox" checked={autoEnhance} onChange={(e) => setAutoEnhance(e.target.checked)} />
+                                            <input
+                                                type="checkbox"
+                                                checked={autoEnhance}
+                                                onChange={(e) => setAutoEnhance(e.target.checked)}
+                                                title="启用提示词润色"
+                                                aria-label="启用提示词润色"
+                                            />
                                             先执行提示词润色 Agent
                                         </label>
                                         <select
                                             value={enhanceMode}
                                             onChange={(e) => setEnhanceMode(e.target.value as PromptEnhanceMode)}
                                             className="text-xs bg-white/10 border border-white/20 rounded-full px-2 py-1"
+                                            title="润色模式"
+                                            aria-label="润色模式"
                                         >
                                             <option value="smart">智能润色</option>
                                             <option value="style">风格化</option>
@@ -233,6 +270,8 @@ export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
                                                 value={stylePreset}
                                                 onChange={(e) => setStylePreset(e.target.value)}
                                                 className="text-xs bg-white/10 border border-white/20 rounded-full px-2 py-1"
+                                                title="风格预设"
+                                                aria-label="风格预设"
                                             >
                                                 <option value="cinematic">电影感</option>
                                                 <option value="ink">水墨</option>
@@ -249,6 +288,8 @@ export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
                                                 value={selectedImageModel}
                                                 onChange={(e) => onImageModelChange?.(e.target.value)}
                                                 className="text-xs bg-white/10 border border-white/20 rounded-full px-2 py-1"
+                                                title="图像模型"
+                                                aria-label="图像模型"
                                             >
                                                 {imageModelOptions.map(model => <option key={model} value={model}>{model}</option>)}
                                             </select>
@@ -258,6 +299,8 @@ export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
                                                 value={selectedVideoModel}
                                                 onChange={(e) => onVideoModelChange?.(e.target.value)}
                                                 className="text-xs bg-white/10 border border-white/20 rounded-full px-2 py-1"
+                                                title="视频模型"
+                                                aria-label="视频模型"
                                             >
                                                 {videoModelOptions.map(model => <option key={model} value={model}>{model}</option>)}
                                             </select>
@@ -283,6 +326,8 @@ export const NodeWorkflowPanel: React.FC<NodeWorkflowPanelProps> = ({
                 accept="image/*"
                 multiple
                 className="hidden"
+                title="上传图片到工作流聊天框"
+                aria-label="上传图片到工作流聊天框"
                 onChange={(e) => {
                     if (e.target.files && e.target.files.length > 0) {
                         onUploadFiles(e.target.files);
