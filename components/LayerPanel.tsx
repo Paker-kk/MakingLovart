@@ -251,10 +251,10 @@ export const LayerPanel: React.FC<LayerPanelProps> = ({ isOpen, onClose, element
     return (
         <div 
             ref={panelRef}
-            className="absolute top-4 left-20 z-20 flex flex-col w-64 h-[calc(100vh-2rem)] border border-neutral-200 rounded-2xl shadow-xl bg-white text-neutral-900 overflow-hidden"
+            className="absolute top-4 left-20 z-[30] flex flex-col w-64 h-[calc(100vh-2rem)] border border-neutral-200/50 rounded-2xl shadow-2xl bg-white/95 backdrop-blur-xl text-neutral-900 overflow-hidden transition-all duration-300 ease-out"
             style={{ backgroundColor: 'var(--ui-bg-color)' }}
         >
-            <div className="flex-shrink-0 flex justify-between items-center p-3 border-b border-neutral-200 cursor-move">
+            <div className="flex-shrink-0 flex justify-between items-center p-3 border-b border-neutral-200/50 cursor-move">
                 <h3 className="text-base font-semibold">Layers</h3>
                 <button onClick={onClose} className="text-neutral-400 hover:text-neutral-900 p-1 rounded-full">
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>

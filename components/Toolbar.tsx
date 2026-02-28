@@ -360,7 +360,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
      */
     return (
         <div 
-            className="absolute z-10 px-2 py-4 backdrop-blur-xl border border-white/10 rounded-full shadow-2xl flex flex-col items-center gap-2"
+            className="absolute z-[40] px-2 py-4 backdrop-blur-xl border border-white/10 rounded-full shadow-2xl flex flex-col items-center gap-2 transition-all duration-300 ease-out"
             style={{
                 ...containerStyle,
                 top: '50%',

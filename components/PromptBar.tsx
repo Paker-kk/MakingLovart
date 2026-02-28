@@ -176,10 +176,10 @@ export const PromptBar: React.FC<PromptBarProps> = ({
     // ---- 渲染 ---------------------------------------------------
 
     return (
-        <div className="w-full max-w-3xl mx-auto px-4">
+        <div className="w-full transition-transform duration-300 ease-[cubic-bezier(0.23,1,0.32,1)]">
             <div
                 style={containerStyle}
-                className="flex items-center gap-2 p-2 border border-neutral-200 rounded-full shadow-xl bg-white"
+                className="flex items-center gap-2 p-2.5 border border-neutral-200/80 rounded-full shadow-[0_8px_30px_rgb(0,0,0,0.08)] bg-white/95 backdrop-blur-md"
             >
                 {/* 1. 模式切换器：图片 vs 视频 */}
                 <div className="flex-shrink-0 flex items-center bg-neutral-100 rounded-full p-0.5">

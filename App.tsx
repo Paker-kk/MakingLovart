@@ -2770,39 +2770,43 @@ const App: React.FC = () => {
                     );
                 })()}
             </div>
-            {!croppingState && <div 
-                className="absolute bottom-0 left-0 right-0 z-40"
-                style={{
-                    paddingLeft: isLayerMinimized ? '0px' : '288px',
-                    paddingRight: `${rightPanelWidth + 32}px`,
-                    transition: 'padding-left 0.35s cubic-bezier(0.4, 0, 0.2, 1), padding-right 0.35s cubic-bezier(0.4, 0, 0.2, 1)'
-                }}
-            >
-                <PromptBar 
-                t={t}
-                prompt={prompt} 
-                setPrompt={setPrompt} 
-                onGenerate={handleGenerate} 
-                isLoading={isLoading} 
-                isSelectionActive={isSelectionActive} 
-                selectedElementCount={selectedElementIds.length}
-                onAddUserEffect={handleAddUserEffect}
-                userEffects={userEffects}
-                onDeleteUserEffect={handleDeleteUserEffect}
-                generationMode={generationMode}
-                setGenerationMode={setGenerationMode}
-                videoAspectRatio={videoAspectRatio}
-                setVideoAspectRatio={setVideoAspectRatio}
-                selectedImageModel={modelPreference.imageModel}
-                selectedVideoModel={modelPreference.videoModel}
-                imageModelOptions={IMAGE_MODEL_OPTIONS}
-                videoModelOptions={VIDEO_MODEL_OPTIONS}
-                onImageModelChange={(model) => setModelPreference(prev => ({ ...prev, imageModel: model }))}
-                onVideoModelChange={(model) => setModelPreference(prev => ({ ...prev, videoModel: model }))}
-                canvasElements={elements}
-                onMentionedElementIds={setMentionedElementIds}
-                />
-            </div>}
+            {!croppingState && (
+                <div 
+                    className="absolute bottom-0 left-0 right-0 z-[40] transition-all duration-300 ease-out flex justify-center pointer-events-none"
+                    style={{
+                        paddingLeft: isLayerMinimized ? '0px' : '288px',
+                        paddingRight: `${rightPanelWidth + 32}px`,
+                        paddingBottom: '24px'
+                    }}
+                >
+                    <div className="pointer-events-auto w-[90%] max-w-4xl transition-transform hover:-translate-y-1 duration-300 drop-shadow-2xl">
+                        <PromptBar 
+                            t={t}
+                            prompt={prompt} 
+                            setPrompt={setPrompt} 
+                            onGenerate={handleGenerate} 
+                            isLoading={isLoading} 
+                            isSelectionActive={isSelectionActive} 
+                            selectedElementCount={selectedElementIds.length}
+                            onAddUserEffect={handleAddUserEffect}
+                            userEffects={userEffects}
+                            onDeleteUserEffect={handleDeleteUserEffect}
+                            generationMode={generationMode}
+                            setGenerationMode={setGenerationMode}
+                            videoAspectRatio={videoAspectRatio}
+                            setVideoAspectRatio={setVideoAspectRatio}
+                            selectedImageModel={modelPreference.imageModel}
+                            selectedVideoModel={modelPreference.videoModel}
+                            imageModelOptions={IMAGE_MODEL_OPTIONS}
+                            videoModelOptions={VIDEO_MODEL_OPTIONS}
+                            onImageModelChange={(model) => setModelPreference(prev => ({ ...prev, imageModel: model }))}
+                            onVideoModelChange={(model) => setModelPreference(prev => ({ ...prev, videoModel: model }))}
+                            canvasElements={elements}
+                            onMentionedElementIds={setMentionedElementIds}
+                        />
+                    </div>
+                </div>
+            )}
         </div>
     );
 };

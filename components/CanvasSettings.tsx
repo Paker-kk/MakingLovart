@@ -130,11 +130,11 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
 
     return (
         <div 
-            className="fixed inset-0 z-40 flex items-center justify-center bg-black/10 backdrop-blur-sm"
+            className="fixed inset-0 z-[100] flex items-center justify-center bg-black/20 backdrop-blur-sm transition-opacity duration-300"
             onClick={onClose}
         >
             <div
-                className="relative p-6 border border-neutral-200 rounded-3xl shadow-2xl flex flex-col gap-5 w-[480px] max-h-[88vh] overflow-y-auto bg-white"
+                className="relative p-6 sm:p-8 border border-neutral-200/60 rounded-3xl shadow-2xl flex flex-col gap-5 w-[92%] sm:w-[480px] max-h-[88vh] overflow-y-auto bg-white/95 backdrop-blur-xl transform transition-all duration-300 scale-100"
                 onClick={(e) => e.stopPropagation()}
             >
                 {/* Header */}

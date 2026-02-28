@@ -179,7 +179,7 @@ export const RightPanel: React.FC<RightPanelProps> = ({
                 transition: 'transform 0.35s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s ease-out',
                 pointerEvents: isMinimized ? 'none' : 'auto',
             }}
-            className="fixed top-4 bottom-4 z-20 bg-white border border-neutral-200 rounded-2xl shadow-2xl overflow-hidden flex flex-col"
+            className="fixed top-4 bottom-4 z-[30] bg-white/95 backdrop-blur-xl border border-neutral-200/50 rounded-2xl shadow-2xl overflow-hidden flex flex-col"
         >
             {/* Resize handle (left edge) */}
             <div
