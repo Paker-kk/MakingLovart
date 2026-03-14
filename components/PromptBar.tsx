@@ -1,28 +1,12 @@
-/**
- * ============================================
- * AI提示词输入栏组件 (Prompt Bar)
- * ============================================
- *
- * 在原有功能基础上升级：
- * - 使用 RichPromptEditor（Tiptap）替换普通 textarea
- * - 支持输入 @ 弹出画布元素选择菜单，选中后嵌入带缩略图徽章
- * - 生成时将 @ 引用元素作为额外参考图传给 AI
- */
-
-import React, { useRef, useCallback, useMemo, useState } from 'react';
-import { QuickPrompts } from './QuickPrompts';
-import RichPromptEditor, { type RichPromptEditorHandle } from './RichPromptEditor';
-import type { MentionItem } from './MentionList';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
-    UserEffect,
-    GenerationMode,
+    CharacterLockProfile,
     Element,
+    GenerationMode,
     PromptEnhanceMode,
     PromptEnhanceResult,
-    CharacterLockProfile,
+    UserEffect,
 } from '../types';
-
-// ---- Props 接口 -------------------------------------------------
 
 interface PromptBarProps {
     t: (key: string, ...args: any[]) => string;
@@ -39,15 +23,16 @@ interface PromptBarProps {
     setGenerationMode: (mode: GenerationMode) => void;
     videoAspectRatio: '16:9' | '9:16';
     setVideoAspectRatio: (ratio: '16:9' | '9:16') => void;
+    selectedTextModel?: string;
     selectedImageModel?: string;
     selectedVideoModel?: string;
+    textModelOptions?: string[];
     imageModelOptions?: string[];
     videoModelOptions?: string[];
+    onTextModelChange?: (model: string) => void;
     onImageModelChange?: (model: string) => void;
     onVideoModelChange?: (model: string) => void;
-    /** 当前画布上所有元素（用于 @ 引用菜单） */
     canvasElements?: Element[];
-    /** 生成时回调：通知父组件本次携带了哪些 @引用元素的 id 列表 */
     onMentionedElementIds?: (ids: string[]) => void;
     onEnhancePrompt?: (payload: { prompt: string; mode: PromptEnhanceMode; stylePreset?: string }) => Promise<PromptEnhanceResult>;
     isEnhancingPrompt?: boolean;
@@ -58,11 +43,23 @@ interface PromptBarProps {
     onSetActiveCharacterLock?: (id: string | null) => void;
 }
 
-// ---- 工具：将画布元素转为 MentionItem ---------------------------
+type ExpandPanel = 'mode' | 'model' | 'enhance' | 'more' | null;
+type MentionState = { start: number; end: number; query: string } | null;
 
-function getElementLabel(el: Element): string {
-    if (el.name) return el.name;
-    const typeNames: Record<string, string> = {
+interface MentionOption {
+    id: string;
+    label: string;
+}
+
+const triggerClass =
+    'h-11 shrink-0 rounded-full border border-[#E6EAF0] bg-[#F4F6FA] px-4 text-sm font-medium text-[#3C4657] transition hover:bg-[#ECEFF5]';
+
+const activeTriggerClass = 'border-[#D7DEE8] bg-white text-[#1F2937] shadow-sm';
+
+function getElementLabel(element: Element): string {
+    if (element.name?.trim()) return element.name.trim();
+
+    const labels: Record<string, string> = {
         image: '图片',
         video: '视频',
         shape: '形状',
@@ -72,21 +69,20 @@ function getElementLabel(el: Element): string {
         arrow: '箭头',
         line: '直线',
     };
-    return `${typeNames[el.type] ?? el.type} ${el.id.slice(-4)}`;
+
+    return `${labels[element.type] ?? '元素'} ${element.id.slice(-4)}`;
 }
 
-function elementToMentionItem(el: Element): MentionItem {
-    let thumbnail = '';
-    if (el.type === 'image') thumbnail = el.href;
-    return {
-        id: el.id,
-        label: getElementLabel(el),
-        thumbnail,
-        elementType: el.type,
-    };
+function getModeLabel(mode: GenerationMode) {
+    if (mode === 'video') return '视频';
+    if (mode === 'keyframe') return '首尾帧';
+    return '图片';
 }
 
-// ---- 主组件 ----------------------------------------------------
+function getModelLabel(mode: GenerationMode, imageModel?: string, videoModel?: string) {
+    if (mode === 'video') return videoModel || '选择视频模型';
+    return imageModel || '选择图片模型';
+}
 
 export const PromptBar: React.FC<PromptBarProps> = ({
     t,
@@ -98,15 +94,17 @@ export const PromptBar: React.FC<PromptBarProps> = ({
     selectedElementCount,
     userEffects,
     onAddUserEffect,
-    onDeleteUserEffect,
     generationMode,
     setGenerationMode,
     videoAspectRatio,
     setVideoAspectRatio,
+    selectedTextModel,
     selectedImageModel,
     selectedVideoModel,
+    textModelOptions = [],
     imageModelOptions = [],
     videoModelOptions = [],
+    onTextModelChange,
     onImageModelChange,
     onVideoModelChange,
     canvasElements = [],
@@ -119,54 +117,110 @@ export const PromptBar: React.FC<PromptBarProps> = ({
     activeCharacterLockId = null,
     onSetActiveCharacterLock,
 }) => {
-    const editorRef = useRef<RichPromptEditorHandle>(null);
+    const textareaRef = useRef<HTMLTextAreaElement>(null);
+    const [expandedPanel, setExpandedPanel] = useState<ExpandPanel>(null);
+    const [mentionState, setMentionState] = useState<MentionState>(null);
+    const [mentionIndex, setMentionIndex] = useState(0);
+    const [mentionMap, setMentionMap] = useState<Record<string, string>>({});
     const [enhanceMode, setEnhanceMode] = useState<PromptEnhanceMode>('smart');
     const [stylePreset, setStylePreset] = useState('cinematic');
     const [enhanceResult, setEnhanceResult] = useState<PromptEnhanceResult | null>(null);
     const [enhanceError, setEnhanceError] = useState<string | null>(null);
 
-    // 将画布元素列表转为 MentionItem（仅对图片以外的非隐藏元素也包含）
-    const canvasItems = useMemo<MentionItem[]>(
-        () =>
-            canvasElements
-                .filter(el => el.isVisible !== false)
-                .map(elementToMentionItem),
+    const mentionOptions = useMemo<MentionOption[]>(
+        () => canvasElements.filter(element => element.isVisible !== false).map(element => ({
+            id: element.id,
+            label: getElementLabel(element),
+        })),
         [canvasElements]
     );
 
-    // ---- 占位符文本 -------------------------------------------
+    const filteredMentions = useMemo(() => {
+        if (!mentionState) return [];
+        const query = mentionState.query.trim().toLowerCase();
+        return mentionOptions
+            .filter(item => !query || item.label.toLowerCase().includes(query))
+            .slice(0, 8);
+    }, [mentionOptions, mentionState]);
 
-    const getPlaceholderText = () => {
-        if (!isSelectionActive) {
-            return generationMode === 'video'
-                ? t('promptBar.placeholderDefaultVideo')
-                : t('promptBar.placeholderDefault');
+    useEffect(() => {
+        setMentionIndex(0);
+    }, [mentionState?.query]);
+
+    useEffect(() => {
+        const textarea = textareaRef.current;
+        if (!textarea) return;
+        textarea.style.height = '0px';
+        textarea.style.height = `${Math.min(260, Math.max(132, textarea.scrollHeight))}px`;
+    }, [prompt]);
+
+    const placeholder = useMemo(() => {
+        if (!isSelectionActive) return '今天我们要创作什么';
+        if (selectedElementCount === 1) return '描述你想对当前元素做什么';
+        return `已选中 ${selectedElementCount} 个元素，补充组合生成描述`;
+    }, [isSelectionActive, selectedElementCount]);
+
+    const syncMentionState = useCallback((value: string, cursor: number) => {
+        const textBeforeCursor = value.slice(0, cursor);
+        const atIndex = textBeforeCursor.lastIndexOf('@');
+
+        if (atIndex < 0) {
+            setMentionState(null);
+            return;
         }
-        if (selectedElementCount === 1) return t('promptBar.placeholderSingle');
-        return t('promptBar.placeholderMultiple', selectedElementCount);
-    };
 
-    // ---- 富文本内容变化 ----------------------------------------
+        const prevChar = atIndex === 0 ? ' ' : textBeforeCursor[atIndex - 1];
+        if (atIndex > 0 && !/\s/.test(prevChar)) {
+            setMentionState(null);
+            return;
+        }
 
-    const handleTextChange = useCallback(
-        (plainText: string) => {
-            setPrompt(plainText);
-        },
-        [setPrompt]
-    );
+        const token = textBeforeCursor.slice(atIndex + 1);
+        if (/[\s\n]/.test(token)) {
+            setMentionState(null);
+            return;
+        }
 
-    // ---- 触发生成 -----------------------------------------------
+        setMentionState({ start: atIndex, end: cursor, query: token });
+    }, []);
+
+    const insertMention = useCallback((item: MentionOption) => {
+        const textarea = textareaRef.current;
+        if (!textarea || !mentionState) return;
+
+        const token = `@[${item.label}] `;
+        const nextPrompt = `${prompt.slice(0, mentionState.start)}${token}${prompt.slice(mentionState.end)}`;
+        const nextCursor = mentionState.start + token.length;
+
+        setPrompt(nextPrompt);
+        setMentionMap(prev => ({ ...prev, [item.label]: item.id }));
+        setMentionState(null);
+
+        requestAnimationFrame(() => {
+            textarea.focus();
+            textarea.setSelectionRange(nextCursor, nextCursor);
+        });
+    }, [mentionState, prompt, setPrompt]);
+
+    const handlePromptChange = useCallback((value: string, cursor: number) => {
+        setPrompt(value);
+        syncMentionState(value, cursor);
+    }, [setPrompt, syncMentionState]);
 
     const handleGenerate = useCallback(() => {
-        if (isLoading || !prompt.trim()) return;
-        // 提取 @引用元素 id 列表通知父组件
-        const mentions = editorRef.current?.getMentions() ?? [];
-        onMentionedElementIds?.(mentions.map(m => m.id));
-        onGenerate();
-    }, [isLoading, prompt, onGenerate, onMentionedElementIds]);
+        if (!prompt.trim() || isLoading) return;
 
-    const handleEnhancePrompt = useCallback(async () => {
+        const ids = Array.from(prompt.matchAll(/@\[([^\]]+)\]/g))
+            .map(match => mentionMap[match[1]])
+            .filter((id): id is string => !!id);
+
+        onMentionedElementIds?.(Array.from(new Set(ids)));
+        onGenerate();
+    }, [isLoading, mentionMap, onGenerate, onMentionedElementIds, prompt]);
+
+    const handleEnhance = useCallback(async () => {
         if (!prompt.trim() || !onEnhancePrompt || isEnhancingPrompt) return;
+
         setEnhanceError(null);
         try {
             const result = await onEnhancePrompt({
@@ -176,324 +230,326 @@ export const PromptBar: React.FC<PromptBarProps> = ({
             });
             setEnhanceResult(result);
         } catch (error) {
-            const message = error instanceof Error ? error.message : 'Prompt enhancement failed.';
-            setEnhanceError(message);
             setEnhanceResult(null);
+            setEnhanceError(error instanceof Error ? error.message : '提示词润色失败。');
         }
-    }, [prompt, onEnhancePrompt, isEnhancingPrompt, enhanceMode, stylePreset]);
+    }, [enhanceMode, isEnhancingPrompt, onEnhancePrompt, prompt, stylePreset]);
 
     const handleApplyEnhancedPrompt = useCallback(() => {
         if (!enhanceResult?.enhancedPrompt) return;
         setPrompt(enhanceResult.enhancedPrompt);
-        setTimeout(() => editorRef.current?.focus(), 10);
+        requestAnimationFrame(() => textareaRef.current?.focus());
     }, [enhanceResult, setPrompt]);
 
-    // ---- 保存效果 -----------------------------------------------
+    const handleSaveEffect = useCallback(() => {
+        if (!prompt.trim()) return;
+        const name = window.prompt('给这个提示词起个名字', `我的效果 ${userEffects.length + 1}`);
+        if (!name?.trim()) return;
 
-    const handleSaveEffect = () => {
-        const name = window.prompt(
-            t('myEffects.saveEffectPrompt'),
-            t('myEffects.defaultName')
-        );
-        if (name && prompt.trim()) {
-            onAddUserEffect({
-                id: `user_${Date.now()}`,
-                name,
-                value: prompt,
-            });
-        }
-    };
-
-    // ---- 快捷提示词应用 -----------------------------------------
-
-    const handleQuickPrompt = useCallback(
-        (value: string) => {
-            setPrompt(value);
-            // 聚焦并将光标移到末尾
-            setTimeout(() => editorRef.current?.focus(), 10);
-        },
-        [setPrompt]
-    );
-
-    // ---- 样式 ---------------------------------------------------
-
-    const containerStyle: React.CSSProperties = {
-        backgroundColor: 'var(--ui-bg-color)',
-    };
-
-    // ---- 渲染 ---------------------------------------------------
+        onAddUserEffect({
+            id: `effect_${Date.now()}`,
+            name: name.trim(),
+            value: prompt.trim(),
+        });
+    }, [onAddUserEffect, prompt, userEffects.length]);
 
     return (
-        <div className="w-full transition-transform duration-300 ease-[cubic-bezier(0.23,1,0.32,1)]">
-            <div
-                style={containerStyle}
-                className="flex items-center gap-2 p-2.5 border border-neutral-200/80 rounded-full shadow-[0_8px_30px_rgb(0,0,0,0.08)] bg-white/95 backdrop-blur-md"
-            >
-                {/* 1. 模式切换器：图片 vs 视频 */}
-                <div className="flex-shrink-0 flex items-center bg-neutral-100 rounded-full p-0.5">
-                    <button
-                        onClick={() => setGenerationMode('image')}
-                        className={`px-2.5 py-1 text-xs font-medium rounded-full transition-colors ${
-                            generationMode === 'image'
-                                ? 'bg-white text-neutral-900 shadow-sm'
-                                : 'text-neutral-600 hover:text-neutral-900'
-                        }`}
-                    >
-                        {t('promptBar.imageMode')}
-                    </button>
-                    <button
-                        onClick={() => setGenerationMode('video')}
-                        className={`px-2.5 py-1 text-xs font-medium rounded-full transition-colors ${
-                            generationMode === 'video'
-                                ? 'bg-white text-neutral-900 shadow-sm'
-                                : 'text-neutral-600 hover:text-neutral-900'
-                        }`}
-                    >
-                        {t('promptBar.videoMode')}
-                    </button>
+        <div className="w-full">
+            <div className="overflow-hidden rounded-[26px] border border-[#E4E7EC] bg-white shadow-[0_24px_60px_rgba(15,23,42,0.12)]">
+                <div className="relative px-5 pt-5">
+                    <textarea
+                        ref={textareaRef}
+                        value={prompt}
+                        onChange={(event) => handlePromptChange(event.target.value, event.target.selectionStart)}
+                        onBlur={() => window.setTimeout(() => setMentionState(null), 120)}
+                        onKeyDown={(event) => {
+                            if (mentionState && filteredMentions.length > 0) {
+                                if (event.key === 'ArrowDown') {
+                                    event.preventDefault();
+                                    setMentionIndex(prev => (prev + 1) % filteredMentions.length);
+                                    return;
+                                }
+                                if (event.key === 'ArrowUp') {
+                                    event.preventDefault();
+                                    setMentionIndex(prev => (prev - 1 + filteredMentions.length) % filteredMentions.length);
+                                    return;
+                                }
+                                if (event.key === 'Enter' && !event.shiftKey) {
+                                    event.preventDefault();
+                                    insertMention(filteredMentions[mentionIndex]);
+                                    return;
+                                }
+                                if (event.key === 'Escape') {
+                                    setMentionState(null);
+                                    return;
+                                }
+                            }
+
+                            if (event.key === 'Enter' && !event.shiftKey) {
+                                event.preventDefault();
+                                handleGenerate();
+                            }
+                        }}
+                        placeholder={placeholder}
+                        className="min-h-[132px] w-full resize-none border-none bg-transparent px-0 py-0 text-[18px] leading-8 text-[#1F2937] outline-none placeholder:text-[#B8C2D1]"
+                    />
+
+                    {mentionState && filteredMentions.length > 0 && (
+                        <div className="absolute left-5 top-[calc(100%_-_8px)] z-20 w-[280px] rounded-2xl border border-[#E4E7EC] bg-white p-2 shadow-[0_18px_48px_rgba(15,23,42,0.14)]">
+                            <div className="px-2 pb-1 text-[11px] font-medium uppercase tracking-[0.14em] text-[#98A2B3]">
+                                引用白板元素
+                            </div>
+                            <div className="space-y-1">
+                                {filteredMentions.map((item, index) => (
+                                    <button
+                                        key={item.id}
+                                        type="button"
+                                        onMouseDown={(event) => {
+                                            event.preventDefault();
+                                            insertMention(item);
+                                        }}
+                                        className={`flex w-full items-center rounded-xl px-3 py-2 text-left text-sm transition ${
+                                            index === mentionIndex ? 'bg-[#EEF4FF] text-[#175CD3]' : 'text-[#344054] hover:bg-[#F4F6FA]'
+                                        }`}
+                                    >
+                                        @{item.label}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    )}
                 </div>
 
-                {/* 2. 宽高比选择器（仅视频模式） */}
-                {generationMode === 'video' && (
-                    <div className="flex-shrink-0 flex items-center bg-neutral-100 rounded-full p-0.5">
-                        <button
-                            onClick={() => setVideoAspectRatio('16:9')}
-                            title={t('promptBar.aspectRatioHorizontal')}
-                            className={`p-1 rounded-full transition-colors ${
-                                videoAspectRatio === '16:9'
-                                    ? 'bg-white text-neutral-900 shadow-sm'
-                                    : 'text-neutral-500 hover:text-neutral-900'
-                            }`}
-                        >
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                <rect x="2" y="7" width="20" height="10" rx="2" ry="2" />
-                            </svg>
-                        </button>
-                        <button
-                            onClick={() => setVideoAspectRatio('9:16')}
-                            title={t('promptBar.aspectRatioVertical')}
-                            className={`p-1 rounded-full transition-colors ${
-                                videoAspectRatio === '9:16'
-                                    ? 'bg-white text-neutral-900 shadow-sm'
-                                    : 'text-neutral-500 hover:text-neutral-900'
-                            }`}
-                        >
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                <rect x="7" y="2" width="10" height="20" rx="2" ry="2" />
-                            </svg>
-                        </button>
+                {expandedPanel && (
+                    <div className="border-t border-[#EEF1F5] bg-[#FBFCFE] px-4 py-3">
+                        {expandedPanel === 'mode' && (
+                            <div className="flex flex-wrap items-center gap-2">
+                                {(['image', 'video', 'keyframe'] as GenerationMode[]).map(mode => (
+                                    <button
+                                        key={mode}
+                                        type="button"
+                                        onClick={() => setGenerationMode(mode)}
+                                        className={`${triggerClass} ${generationMode === mode ? activeTriggerClass : ''}`}
+                                    >
+                                        {getModeLabel(mode)}
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+
+                        {expandedPanel === 'model' && (
+                            <div className="flex flex-wrap items-center gap-2">
+                                {(generationMode === 'video' ? videoModelOptions : imageModelOptions).length > 0 && (
+                                    <select
+                                        value={generationMode === 'video' ? selectedVideoModel : selectedImageModel}
+                                        onChange={(event) =>
+                                            generationMode === 'video'
+                                                ? onVideoModelChange?.(event.target.value)
+                                                : onImageModelChange?.(event.target.value)
+                                        }
+                                        className={triggerClass}
+                                        title="生成模型"
+                                    >
+                                        {(generationMode === 'video' ? videoModelOptions : imageModelOptions).map(model => (
+                                            <option key={model} value={model}>{model}</option>
+                                        ))}
+                                    </select>
+                                )}
+
+                                {generationMode === 'video' && (
+                                    <button
+                                        type="button"
+                                        onClick={() => setVideoAspectRatio(videoAspectRatio === '16:9' ? '9:16' : '16:9')}
+                                        className={triggerClass}
+                                    >
+                                        比例 {videoAspectRatio}
+                                    </button>
+                                )}
+
+                                {selectedTextModel && (
+                                    <select
+                                        value={selectedTextModel}
+                                        onChange={(event) => onTextModelChange?.(event.target.value)}
+                                        className={triggerClass}
+                                        title="LLM 润色模型"
+                                    >
+                                        {textModelOptions.map(model => (
+                                            <option key={model} value={model}>{model}</option>
+                                        ))}
+                                    </select>
+                                )}
+                            </div>
+                        )}
+
+                        {expandedPanel === 'enhance' && (
+                            <div className="flex flex-wrap items-center gap-2">
+                                <select
+                                    value={enhanceMode}
+                                    onChange={(event) => setEnhanceMode(event.target.value as PromptEnhanceMode)}
+                                    className={triggerClass}
+                                    title="润色模式"
+                                >
+                                    <option value="smart">智能润色</option>
+                                    <option value="style">风格化</option>
+                                    <option value="precise">精准优化</option>
+                                    <option value="translate">多语言互转</option>
+                                </select>
+
+                                {enhanceMode === 'style' && (
+                                    <select
+                                        value={stylePreset}
+                                        onChange={(event) => setStylePreset(event.target.value)}
+                                        className={triggerClass}
+                                        title="风格预设"
+                                    >
+                                        <option value="cinematic">电影感</option>
+                                        <option value="ink">水墨</option>
+                                        <option value="ghibli">吉卜力</option>
+                                        <option value="cyberpunk">赛博朋克</option>
+                                        <option value="pixar3d">3D 皮克斯</option>
+                                    </select>
+                                )}
+
+                                <button
+                                    type="button"
+                                    onClick={handleEnhance}
+                                    disabled={isEnhancingPrompt || !prompt.trim()}
+                                    className={triggerClass}
+                                >
+                                    {isEnhancingPrompt ? '润色中...' : '立即润色'}
+                                </button>
+                            </div>
+                        )}
+
+                        {expandedPanel === 'more' && (
+                            <div className="flex flex-wrap items-center gap-2">
+                                {onLockCharacterFromSelection && (
+                                    <button
+                                        type="button"
+                                        onClick={() => onLockCharacterFromSelection()}
+                                        disabled={!canLockCharacter}
+                                        className={triggerClass}
+                                    >
+                                        锁定角色
+                                    </button>
+                                )}
+
+                                {characterLocks.length > 0 && (
+                                    <select
+                                        value={activeCharacterLockId ?? ''}
+                                        onChange={(event) => onSetActiveCharacterLock?.(event.target.value || null)}
+                                        className={triggerClass}
+                                        title="角色锁定"
+                                    >
+                                        <option value="">不使用角色锁定</option>
+                                        {characterLocks.map(lock => (
+                                            <option key={lock.id} value={lock.id}>{lock.name}</option>
+                                        ))}
+                                    </select>
+                                )}
+
+                                <button
+                                    type="button"
+                                    onClick={handleSaveEffect}
+                                    disabled={!prompt.trim()}
+                                    className={triggerClass}
+                                >
+                                    保存提示词
+                                </button>
+
+                                {canvasElements.length > 0 && (
+                                    <span className={`${triggerClass} inline-flex items-center`}>
+                                        输入 @ 可选择白板元素
+                                    </span>
+                                )}
+                            </div>
+                        )}
                     </div>
                 )}
 
-                {/* 2.5 模型快捷切换 */}
-                {generationMode === 'image' && imageModelOptions.length > 0 && (
-                    <select
-                        value={selectedImageModel}
-                        onChange={(e) => onImageModelChange?.(e.target.value)}
-                        className="flex-shrink-0 text-xs bg-neutral-100 rounded-full px-2.5 py-1.5 text-neutral-700 border border-transparent focus:outline-none"
-                        title="图片模型"
-                    >
-                        {imageModelOptions.map(model => (
-                            <option key={model} value={model}>{model}</option>
-                        ))}
-                    </select>
-                )}
-                {generationMode === 'video' && videoModelOptions.length > 0 && (
-                    <select
-                        value={selectedVideoModel}
-                        onChange={(e) => onVideoModelChange?.(e.target.value)}
-                        className="flex-shrink-0 text-xs bg-neutral-100 rounded-full px-2.5 py-1.5 text-neutral-700 border border-transparent focus:outline-none"
-                        title="视频模型"
-                    >
-                        {videoModelOptions.map(model => (
-                            <option key={model} value={model}>{model}</option>
-                        ))}
-                    </select>
-                )}
+                <div className="flex items-center gap-3 border-t border-[#EEF1F5] px-4 py-4">
+                    <div className="min-w-0 flex-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+                        <div className="flex min-w-max items-center gap-2">
+                            {([
+                                ['mode', getModeLabel(generationMode)],
+                                ['model', getModelLabel(generationMode, selectedImageModel, selectedVideoModel)],
+                                ['enhance', 'LLM 润色'],
+                                ['more', '更多'],
+                            ] as Array<[Exclude<ExpandPanel, null>, string]>).map(([key, label]) => (
+                                <button
+                                    key={key}
+                                    type="button"
+                                    onClick={() => setExpandedPanel(prev => (prev === key ? null : key))}
+                                    className={`${triggerClass} ${expandedPanel === key ? activeTriggerClass : ''}`}
+                                >
+                                    {label}
+                                </button>
+                            ))}
+                        </div>
+                    </div>
 
-                {/* 2.6 Agent controls */}
-                {onEnhancePrompt && (
-                    <>
-                        <select
-                            value={enhanceMode}
-                            onChange={(e) => setEnhanceMode(e.target.value as PromptEnhanceMode)}
-                            className="flex-shrink-0 text-xs bg-neutral-100 rounded-full px-2.5 py-1.5 text-neutral-700 border border-transparent focus:outline-none"
-                            title="润色模式"
-                        >
-                            <option value="smart">智能润色</option>
-                            <option value="style">风格化</option>
-                            <option value="precise">精准优化</option>
-                            <option value="translate">多语言互转</option>
-                        </select>
-                        {enhanceMode === 'style' && (
-                            <select
-                                value={stylePreset}
-                                onChange={(e) => setStylePreset(e.target.value)}
-                                className="flex-shrink-0 text-xs bg-neutral-100 rounded-full px-2.5 py-1.5 text-neutral-700 border border-transparent focus:outline-none"
-                                title="风格预设"
-                            >
-                                <option value="cinematic">电影感</option>
-                                <option value="ink">水墨</option>
-                                <option value="ghibli">吉卜力</option>
-                                <option value="cyberpunk">赛博朋克</option>
-                                <option value="pixar3d">3D 皮克斯</option>
-                            </select>
-                        )}
-                        <button
-                            onClick={handleEnhancePrompt}
-                            disabled={isEnhancingPrompt || !prompt.trim()}
-                            className="flex-shrink-0 px-3 py-1.5 text-xs rounded-full bg-neutral-100 text-neutral-800 hover:bg-neutral-200 disabled:opacity-40 transition-colors"
-                            title="AI 提示词润色"
-                        >
-                            {isEnhancingPrompt ? '润色中...' : '✨ AI润色'}
-                        </button>
-                    </>
-                )}
-
-                {onLockCharacterFromSelection && (
-                    <>
-                        <button
-                            onClick={() => onLockCharacterFromSelection()}
-                            disabled={!canLockCharacter}
-                            className="flex-shrink-0 px-3 py-1.5 text-xs rounded-full bg-neutral-100 text-neutral-800 hover:bg-neutral-200 disabled:opacity-40 transition-colors"
-                            title="从当前选中图片锁定角色"
-                        >
-                            🔒 锁定角色
-                        </button>
-                        {characterLocks.length > 0 && (
-                            <select
-                                value={activeCharacterLockId ?? ''}
-                                onChange={(e) => onSetActiveCharacterLock?.(e.target.value || null)}
-                                className="flex-shrink-0 text-xs bg-neutral-100 rounded-full px-2.5 py-1.5 text-neutral-700 border border-transparent focus:outline-none"
-                                title="角色一致性锁定"
-                            >
-                                <option value="">不使用角色锁定</option>
-                                {characterLocks.map(lock => (
-                                    <option key={lock.id} value={lock.id}>{lock.name}</option>
-                                ))}
-                            </select>
-                        )}
-                    </>
-                )}
-
-                {/* 3. 快捷提示词 */}
-                <QuickPrompts
-                    t={t}
-                    setPrompt={handleQuickPrompt}
-                    disabled={!isSelectionActive || isLoading}
-                    userEffects={userEffects}
-                    onDeleteUserEffect={onDeleteUserEffect}
-                />
-
-                {/* 4. 富文本编辑器（带 @ 元素引用） */}
-                <div
-                    className="flex-grow flex items-center min-w-0 cursor-text"
-                    onClick={() => editorRef.current?.focus()}
-                    style={{ minHeight: '28px' }}
-                >
-                    <RichPromptEditor
-                        ref={editorRef}
-                        canvasItems={canvasItems}
-                        placeholder={getPlaceholderText()}
-                        disabled={isLoading}
-                        onTextChange={handleTextChange}
-                        onSubmit={handleGenerate}
-                    />
-                </div>
-
-                {/* 5. @ 提示标签（引导用户使用） */}
-                {canvasItems.length > 0 && !prompt.trim() && (
-                    <span
-                        className="flex-shrink-0 text-xs text-indigo-400 font-medium select-none"
-                        title={`输入 @ 可引用 ${canvasItems.length} 个画布元素`}
-                        style={{ whiteSpace: 'nowrap' }}
-                    >
-                        @
-                    </span>
-                )}
-
-                {/* 6. 保存效果按钮 */}
-                {prompt.trim() && !isLoading && (
                     <button
-                        onClick={handleSaveEffect}
-                        title={t('myEffects.saveEffectTooltip')}
-                        className="flex-shrink-0 w-8 h-8 flex items-center justify-center text-neutral-500 rounded-full hover:bg-neutral-100 transition-colors duration-200"
+                        type="button"
+                        onClick={handleGenerate}
+                        disabled={isLoading || !prompt.trim()}
+                        aria-label={t('promptBar.generate')}
+                        title={t('promptBar.generate')}
+                        className="flex h-12 min-w-[72px] items-center justify-center rounded-2xl bg-[#1F2937] px-4 text-white transition hover:bg-[#111827] disabled:cursor-not-allowed disabled:bg-[#D0D5DD]"
                     >
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z" />
-                        </svg>
+                        {isLoading ? (
+                            <svg className="h-4 w-4 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                <circle className="opacity-30" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                <path className="opacity-80" fill="currentColor" d="M4 12a8 8 0 0 1 8-8v4a4 4 0 0 0-4 4H4Z" />
+                            </svg>
+                        ) : (
+                            <div className="flex items-center gap-2">
+                                <span className="text-sm font-semibold">生成</span>
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+                                    <path d="M5 12h14" />
+                                    <path d="m12 5 7 7-7 7" />
+                                </svg>
+                            </div>
+                        )}
                     </button>
-                )}
-
-                {/* 7. 生成按钮 */}
-                <button
-                    onClick={handleGenerate}
-                    disabled={isLoading || !prompt.trim()}
-                    aria-label={t('promptBar.generate')}
-                    title={t('promptBar.generate')}
-                    className="flex-shrink-0 w-9 h-9 flex items-center justify-center text-white rounded-full disabled:opacity-50 disabled:cursor-not-allowed hover:brightness-110 transition-all duration-200"
-                    style={{ backgroundColor: 'var(--button-bg-color)' }}
-                >
-                    {isLoading ? (
-                        <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                        </svg>
-                    ) : generationMode === 'image' ? (
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M5 12h14" /><path d="m12 5 7 7-7 7" />
-                        </svg>
-                    ) : (
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="m22 8-6 4 6 4V8Z" /><rect x="2" y="6" width="14" height="12" rx="2" ry="2" />
-                        </svg>
-                    )}
-                </button>
+                </div>
             </div>
 
             {(enhanceResult || enhanceError) && (
-                <div className="mt-2 p-3 rounded-2xl border border-neutral-200 bg-white/95 backdrop-blur-md shadow-sm">
-                    {enhanceError && (
-                        <div className="text-xs text-red-500 mb-2">{enhanceError}</div>
-                    )}
+                <div className="mt-3 rounded-[22px] border border-[#E4E7EC] bg-white p-4 shadow-[0_16px_40px_rgba(15,23,42,0.08)]">
+                    {enhanceError && <div className="text-sm text-rose-500">{enhanceError}</div>}
+
                     {enhanceResult && (
                         <>
-                            <div className="text-xs text-neutral-500 mb-1">AI 润色结果</div>
-                            <div className="text-sm text-neutral-900 leading-relaxed mb-2">{enhanceResult.enhancedPrompt}</div>
-                            {enhanceResult.negativePrompt && (
-                                <div className="text-xs text-neutral-600 mb-2">
-                                    <span className="font-medium">负面词：</span>
-                                    {enhanceResult.negativePrompt}
-                                </div>
-                            )}
+                            <div className="text-xs uppercase tracking-[0.18em] text-[#98A2B3]">AI Prompt Assist</div>
+                            <div className="mt-2 text-sm leading-7 text-[#344054]">{enhanceResult.enhancedPrompt}</div>
+
                             {enhanceResult.suggestions.length > 0 && (
-                                <div className="flex flex-wrap gap-1 mb-2">
-                                    {enhanceResult.suggestions.map((item, idx) => (
-                                        <span key={`${item}-${idx}`} className="text-[11px] px-2 py-0.5 rounded-full bg-neutral-100 text-neutral-700">
+                                <div className="mt-3 flex flex-wrap gap-2">
+                                    {enhanceResult.suggestions.map((item, index) => (
+                                        <span
+                                            key={`${item}-${index}`}
+                                            className="rounded-full border border-[#E6EAF0] bg-[#F4F6FA] px-3 py-1.5 text-xs text-[#667085]"
+                                        >
                                             {item}
                                         </span>
                                     ))}
                                 </div>
                             )}
-                            <div className="flex items-center gap-2">
+
+                            <div className="mt-4 flex flex-wrap items-center gap-2">
                                 <button
+                                    type="button"
                                     onClick={handleApplyEnhancedPrompt}
-                                    className="text-xs px-2.5 py-1 rounded-full bg-neutral-900 text-white hover:brightness-110 transition-colors"
+                                    className="rounded-full bg-[#1F2937] px-4 py-2 text-xs font-medium text-white transition hover:bg-[#111827]"
                                 >
-                                    ✅ 采用
+                                    采用润色结果
                                 </button>
                                 <button
+                                    type="button"
                                     onClick={() => navigator.clipboard?.writeText(enhanceResult.enhancedPrompt)}
-                                    className="text-xs px-2.5 py-1 rounded-full bg-neutral-100 text-neutral-800 hover:bg-neutral-200 transition-colors"
+                                    className={triggerClass}
                                 >
-                                    📋 复制
-                                </button>
-                                <button
-                                    onClick={handleEnhancePrompt}
-                                    disabled={isEnhancingPrompt || !prompt.trim()}
-                                    className="text-xs px-2.5 py-1 rounded-full bg-neutral-100 text-neutral-800 hover:bg-neutral-200 disabled:opacity-40 transition-colors"
-                                >
-                                    🔄 再润色
+                                    复制
                                 </button>
                             </div>
                         </>

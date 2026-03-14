@@ -4,7 +4,7 @@ export type Tool = 'select' | 'pan' | 'draw' | 'erase' | 'rectangle' | 'circle' 
 
 export type WheelAction = 'zoom' | 'pan';
 
-export type GenerationMode = 'image' | 'video';
+export type GenerationMode = 'image' | 'video' | 'keyframe';
 
 export interface Point {
   x: number;
@@ -127,6 +127,17 @@ export interface AssetLibrary {
   prop: AssetItem[];
 }
 
+export interface GenerationHistoryItem {
+  id: string;
+  name?: string;
+  dataUrl: string;
+  mimeType: string;
+  width: number;
+  height: number;
+  prompt: string;
+  createdAt: number;
+}
+
 // API Key & Model Preferences
 export type AIProvider = 'openai' | 'anthropic' | 'google' | 'stability' | 'qwen' | 'banana' | 'custom';
 export type AICapability = 'text' | 'image' | 'video' | 'agent';
@@ -134,6 +145,7 @@ export type AICapability = 'text' | 'image' | 'video' | 'agent';
 export interface UserApiKey {
   id: string;
   provider: AIProvider;
+  capabilities: AICapability[];
   key: string;
   baseUrl?: string;
   name?: string;

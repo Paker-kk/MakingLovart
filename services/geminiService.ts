@@ -32,7 +32,9 @@ import type { PromptEnhanceRequest, PromptEnhanceResult } from "../types";
 // 从环境变量获取 API Key
 const API_KEY = process.env.API_KEY;
 let runtimeConfig: {
-  apiKey?: string;
+  textApiKey?: string;
+  imageApiKey?: string;
+  videoApiKey?: string;
   textModel?: string;
   imageModel?: string;
   textToImageModel?: string;
@@ -40,7 +42,9 @@ let runtimeConfig: {
 } = {};
 
 export function setGeminiRuntimeConfig(config: {
-  apiKey?: string;
+  textApiKey?: string;
+  imageApiKey?: string;
+  videoApiKey?: string;
   textModel?: string;
   imageModel?: string;
   textToImageModel?: string;
@@ -49,16 +53,22 @@ export function setGeminiRuntimeConfig(config: {
   runtimeConfig = { ...runtimeConfig, ...config };
 }
 
-function getApiKey(): string {
-  const key = runtimeConfig.apiKey || API_KEY;
+function getApiKey(capability: "text" | "image" | "video" = "text"): string {
+  const scopedKey =
+    capability === "text"
+      ? runtimeConfig.textApiKey
+      : capability === "image"
+        ? runtimeConfig.imageApiKey
+        : runtimeConfig.videoApiKey;
+  const key = scopedKey || runtimeConfig.textApiKey || runtimeConfig.imageApiKey || runtimeConfig.videoApiKey || API_KEY;
   if (!key) {
     throw new Error("Gemini API key is not set. Please configure it in settings.");
   }
   return key;
 }
 
-function getClient() {
-  return new GoogleGenAI({ apiKey: getApiKey() });
+function getClient(capability: "text" | "image" | "video" = "text") {
+  return new GoogleGenAI({ apiKey: getApiKey(capability) });
 }
 
 function getTextFromResponse(response: GenerateContentResponse): string {
@@ -116,7 +126,7 @@ export async function enhancePromptWithGemini(request: PromptEnhanceRequest): Pr
   ].join("\n");
 
   try {
-    const ai = getClient();
+    const ai = getClient("text");
     const model = runtimeConfig.textModel || "gemini-2.5-pro";
     const response: GenerateContentResponse = await ai.models.generateContent({
       model,
@@ -213,7 +223,7 @@ export async function editImage(
     : [...imageParts, textPart];            // 无遮罩：图片+提示词
 
   try {
-    const ai = getClient();
+    const ai = getClient("image");
     // 步骤5：调用 Gemini API
     const response: GenerateContentResponse = await ai.models.generateContent({
       model: runtimeConfig.imageModel || 'gemini-2.5-flash-image-preview',  // 使用 Gemini 2.5 Flash 图像模型
@@ -296,7 +306,7 @@ export async function editImage(
  */
 export async function generateImageFromText(prompt: string): Promise<{ newImageBase64: string | null; newImageMimeType: string | null; textResponse: string | null; }> {
   try {
-    const ai = getClient();
+    const ai = getClient("image");
     const response = await ai.models.generateImages({
         model: runtimeConfig.textToImageModel || 'imagen-4.0-generate-001',  // 使用 Imagen 4.0 模型
         prompt: prompt,
@@ -366,7 +376,7 @@ export async function generateVideo(
   onProgress: (message: string) => void,
   image?: ImageInput
 ): Promise<{ videoBlob: Blob; mimeType: string }> {
-  const ai = getClient();
+  const ai = getClient("video");
   // 步骤1：初始化
   onProgress('Initializing video generation...');
   
@@ -419,7 +429,7 @@ export async function generateVideo(
 
   // 步骤8：下载视频文件
   onProgress('Downloading generated video...');
-  const response = await fetch(`${downloadLink}&key=${getApiKey()}`);
+  const response = await fetch(`${downloadLink}&key=${getApiKey("video")}`);
   if (!response.ok) {
     throw new Error(`Failed to download video: ${response.statusText}`);
   }

@@ -1,26 +1,5 @@
-/**
- * ============================================
- * 富文本提示词编辑器（带 @ 元素引用）
- * ============================================
- *
- * 基于 Tiptap + 自定义 CanvasMentionNode 实现。
- * 用户在任意位置输入 @ 即弹出画布元素选择菜单；
- * 选中后以带缩略图的徽章形式嵌入编辑器。
- *
- * 对外暴露：
- *  - onTextChange(plainText, editorJSON)  —— 内容变化回调
- *  - onSubmit()                           —— Enter 触发生成
- *  - canvasItems                          —— 来自父组件的画布元素列表
- */
-
-import React, {
-    useEffect,
-    useImperativeHandle,
-    forwardRef,
-    useRef,
-    useCallback,
-} from 'react';
-import { useEditor, EditorContent } from '@tiptap/react';
+import React, { forwardRef, useCallback, useEffect, useImperativeHandle, useRef } from 'react';
+import { EditorContent, useEditor } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import { Extension } from '@tiptap/core';
 import { Suggestion } from '@tiptap/suggestion';
@@ -28,10 +7,19 @@ import tippy, { type Instance as TippyInstance } from 'tippy.js';
 import 'tippy.js/dist/tippy.css';
 import ReactDOM from 'react-dom/client';
 import MentionList, { type MentionItem, type MentionListHandle } from './MentionList';
-import { CanvasMentionNode, extractMentions, editorJSONToText } from './CanvasMentionExtension';
-import type { MentionData } from './CanvasMentionExtension';
+import { CanvasMentionNode, editorJSONToText, extractMentions, type MentionData } from './CanvasMentionExtension';
 
-// ---- Suggestion 扩展配置 ----------------------------------------
+function buildDocFromText(text: string) {
+    const paragraphs = (text || '').split('\n').map(line => ({
+        type: 'paragraph',
+        content: line ? [{ type: 'text', text: line }] : [],
+    }));
+
+    return {
+        type: 'doc',
+        content: paragraphs.length > 0 ? paragraphs : [{ type: 'paragraph' }],
+    };
+}
 
 function buildSuggestionExtension(getItems: (query: string) => MentionItem[]) {
     return Extension.create({
@@ -43,7 +31,6 @@ function buildSuggestionExtension(getItems: (query: string) => MentionItem[]) {
                     char: '@',
                     allowSpaces: false,
                     items: ({ query }) => getItems(query),
-
                     render() {
                         let reactRoot: ReactDOM.Root | null = null;
                         let container: HTMLElement | null = null;
@@ -85,7 +72,6 @@ function buildSuggestionExtension(getItems: (query: string) => MentionItem[]) {
                                     },
                                 });
                             },
-
                             onUpdate(props) {
                                 reactRoot?.render(
                                     <MentionList
@@ -94,21 +80,21 @@ function buildSuggestionExtension(getItems: (query: string) => MentionItem[]) {
                                         command={props.command}
                                     />
                                 );
+
                                 if (popup?.[0] && props.clientRect) {
                                     popup[0].setProps({
                                         getReferenceClientRect: props.clientRect as () => DOMRect,
                                     });
                                 }
                             },
-
                             onKeyDown(props) {
                                 if (props.event.key === 'Escape') {
                                     popup?.[0]?.hide();
                                     return true;
                                 }
+
                                 return componentRef.current?.onKeyDown(props) ?? false;
                             },
-
                             onExit() {
                                 popup?.[0]?.destroy();
                                 popup = null;
@@ -119,7 +105,6 @@ function buildSuggestionExtension(getItems: (query: string) => MentionItem[]) {
                             },
                         };
                     },
-
                     command({ editor, range, props }) {
                         const item = props as MentionItem;
                         editor
@@ -144,22 +129,14 @@ function buildSuggestionExtension(getItems: (query: string) => MentionItem[]) {
     });
 }
 
-// ---- 对外暴露的 handle 类型 -------------------------------------
-
 export interface RichPromptEditorHandle {
-    /** 清空编辑器内容 */
     clear: () => void;
-    /** 聚焦到编辑器末尾 */
     focus: () => void;
-    /** 获取编辑器 JSON（用于提取 mentions） */
+    setText: (text: string) => void;
     getJSON: () => Record<string, unknown>;
-    /** 获取纯文本 */
     getText: () => string;
-    /** 获取所有 @引用的元素数据 */
     getMentions: () => MentionData[];
 }
-
-// ---- 组件 Props 定义 -------------------------------------------
 
 export interface RichPromptEditorProps {
     canvasItems: MentionItem[];
@@ -170,29 +147,26 @@ export interface RichPromptEditorProps {
     initialText?: string;
 }
 
-// ---- 主组件 ----------------------------------------------------
-
 const RichPromptEditor = forwardRef<RichPromptEditorHandle, RichPromptEditorProps>(
-    ({ canvasItems, placeholder = '输入提示词，@ 引用画布元素...', disabled, onTextChange, onSubmit, initialText }, ref) => {
-        // 用 ref 保存 canvasItems，避免 suggestion 闭包拿到旧值
+    ({ canvasItems, placeholder = '输入提示词，@ 引用白板元素...', disabled, onTextChange, onSubmit, initialText = '' }, ref) => {
         const canvasItemsRef = useRef(canvasItems);
+
         useEffect(() => {
             canvasItemsRef.current = canvasItems;
         }, [canvasItems]);
 
         const getFilteredItems = useCallback((query: string): MentionItem[] => {
-            const q = query.toLowerCase();
+            const normalized = query.toLowerCase();
             return canvasItemsRef.current.filter(
                 item =>
-                    item.label.toLowerCase().includes(q) ||
-                    item.elementType.toLowerCase().includes(q)
+                    item.label.toLowerCase().includes(normalized) ||
+                    item.elementType.toLowerCase().includes(normalized)
             );
         }, []);
 
         const editor = useEditor({
             extensions: [
                 StarterKit.configure({
-                    // 禁用不需要的 marks
                     bold: false,
                     italic: false,
                     strike: false,
@@ -208,12 +182,13 @@ const RichPromptEditor = forwardRef<RichPromptEditorHandle, RichPromptEditorProp
                 CanvasMentionNode,
                 buildSuggestionExtension(getFilteredItems),
             ],
-            content: initialText ? `<p>${initialText}</p>` : '<p></p>',
+            content: buildDocFromText(initialText),
             editable: !disabled,
             editorProps: {
                 attributes: {
                     class: 'rich-prompt-editor',
                     spellcheck: 'false',
+                    'data-placeholder': placeholder,
                 },
                 handleKeyDown(_, event) {
                     if (event.key === 'Enter' && !event.shiftKey) {
@@ -226,18 +201,20 @@ const RichPromptEditor = forwardRef<RichPromptEditorHandle, RichPromptEditorProp
             },
             onUpdate({ editor }) {
                 const json = editor.getJSON() as Record<string, unknown>;
-                const text = editorJSONToText(json);
-                onTextChange?.(text, json);
+                onTextChange?.(editorJSONToText(json), json);
             },
         });
 
-        // 对外暴露方法
         useImperativeHandle(ref, () => ({
             clear() {
                 editor?.commands.clearContent(true);
             },
             focus() {
                 editor?.commands.focus('end');
+            },
+            setText(text: string) {
+                if (!editor) return;
+                editor.commands.setContent(buildDocFromText(text), false);
             },
             getJSON() {
                 return (editor?.getJSON() ?? {}) as Record<string, unknown>;
@@ -252,14 +229,18 @@ const RichPromptEditor = forwardRef<RichPromptEditorHandle, RichPromptEditorProp
             },
         }));
 
-        // disabled 变化时同步
         useEffect(() => {
             editor?.setEditable(!disabled);
         }, [disabled, editor]);
 
+        useEffect(() => {
+            if (!editor) return;
+            editor.view.dom.setAttribute('data-placeholder', placeholder);
+        }, [editor, placeholder]);
+
         return (
             <>
-                <style>{editorStyles(placeholder)}</style>
+                <style>{editorStyles()}</style>
                 <EditorContent editor={editor} />
             </>
         );
@@ -267,25 +248,33 @@ const RichPromptEditor = forwardRef<RichPromptEditorHandle, RichPromptEditorProp
 );
 
 RichPromptEditor.displayName = 'RichPromptEditor';
+
 export default RichPromptEditor;
 
-// ---- 编辑器 CSS ------------------------------------------------
-
-function editorStyles(placeholder: string): string {
+function editorStyles(): string {
     return `
 .rich-prompt-editor {
     flex: 1;
-    min-height: 22px;
-    max-height: 96px;
+    min-height: var(--prompt-editor-min-height, 28px);
+    max-height: var(--prompt-editor-max-height, 220px);
     overflow-y: auto;
     outline: none;
-    font-size: 14px;
-    line-height: 1.5;
-    color: #111827;
-    caret-color: #4F46E5;
-    padding: 0 6px;
+    font-size: var(--prompt-editor-font-size, 15px);
+    line-height: var(--prompt-editor-line-height, 1.6);
+    color: var(--prompt-editor-color, #111827) !important;
+    caret-color: var(--prompt-editor-caret, #4f46e5);
+    padding: var(--prompt-editor-padding, 0 6px);
     word-break: break-word;
     background: transparent;
+    white-space: pre-wrap;
+}
+
+.rich-prompt-editor,
+.rich-prompt-editor .ProseMirror,
+.rich-prompt-editor .ProseMirror *,
+.rich-prompt-editor p,
+.rich-prompt-editor span {
+    color: var(--prompt-editor-color, #111827) !important;
 }
 
 .rich-prompt-editor p {
@@ -296,27 +285,27 @@ function editorStyles(placeholder: string): string {
 .rich-prompt-editor:empty:before,
 .rich-prompt-editor p:first-child:empty:before {
     content: attr(data-placeholder);
-    color: #9ca3af;
+    color: var(--prompt-editor-placeholder, #9ca3af) !important;
     pointer-events: none;
 }
 
-/* tippy 轻边框主题 */
 .tippy-box[data-theme~='light-border'] {
     background-color: transparent;
     box-shadow: none;
     border: none;
     padding: 0;
 }
+
 .tippy-box[data-theme~='light-border'] .tippy-content {
     padding: 0;
 }
 
-/* 滚动条美化 */
 .rich-prompt-editor::-webkit-scrollbar {
     width: 3px;
 }
+
 .rich-prompt-editor::-webkit-scrollbar-thumb {
-    background: #e5e7eb;
+    background: var(--prompt-editor-scrollbar, #e5e7eb);
     border-radius: 2px;
 }
 `;

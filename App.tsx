@@ -13,15 +13,16 @@ import { LayerPanel } from './components/LayerPanel';
 import { LayerPanelMinimizable } from './components/LayerPanelMinimizable';
 import { LayerToggleButton } from './components/LayerToggleButton';
 import { BoardPanel } from './components/BoardPanel';
-import type { Tool, Point, Element, ImageElement, PathElement, ShapeElement, TextElement, ArrowElement, UserEffect, LineElement, WheelAction, GroupElement, Board, VideoElement, AssetLibrary, AssetCategory, AssetItem, UserApiKey, ModelPreference, AIProvider, PromptEnhanceMode, CharacterLockProfile, WorkspaceMode, ChatAttachment } from './types';
+import type { Tool, Point, Element, ImageElement, PathElement, ShapeElement, TextElement, ArrowElement, UserEffect, LineElement, WheelAction, GroupElement, Board, VideoElement, AssetLibrary, AssetCategory, AssetItem, UserApiKey, ModelPreference, AIProvider, AICapability, PromptEnhanceMode, CharacterLockProfile, GenerationHistoryItem } from './types';
 import { AssetLibraryPanel } from './components/AssetLibraryPanel';
 import { InspirationPanel } from './components/InspirationPanel';
 import { RightPanel } from './components/RightPanel';
 import { AssetAddModal } from './components/AssetAddModal';
-import { NodeWorkflowPanel } from './components/NodeWorkflowPanel';
 import { loadAssetLibrary, addAsset, removeAsset, renameAsset } from './utils/assetStorage';
+import { loadGenerationHistory, addGenerationHistoryItem } from './utils/generationHistory';
 import { editImage, generateImageFromText, generateVideo, setGeminiRuntimeConfig, enhancePromptWithGemini } from './services/geminiService';
 import { splitImageByBanana, runBananaImageAgent, setBananaRuntimeConfig } from './services/bananaService';
+import { enhancePromptWithProvider, generateImageWithProvider, inferProviderFromModel } from './services/aiGateway';
 import { fileToDataUrl } from './utils/fileUtils';
 import { translations } from './translations';
 
@@ -370,8 +371,51 @@ const DEFAULT_MODEL_PREFS: ModelPreference = {
     agentModel: 'banana-vision-v1',
 };
 
-const IMAGE_MODEL_OPTIONS = ['gemini-2.5-flash-image-preview', 'imagen-4.0-generate-001'];
+const TEXT_MODEL_OPTIONS = ['gemini-2.5-pro', 'gpt-4o-mini', 'claude-3-5-sonnet', 'qwen-max'];
+const IMAGE_MODEL_OPTIONS = ['gemini-2.5-flash-image-preview', 'imagen-4.0-generate-001', 'dall-e-3', 'sdxl'];
 const VIDEO_MODEL_OPTIONS = ['veo-2.0-generate-001'];
+
+const inferCapabilitiesByProvider = (provider: AIProvider): AICapability[] => {
+    switch (provider) {
+        case 'google':
+            return ['text', 'image', 'video'];
+        case 'openai':
+            return ['text', 'image'];
+        case 'anthropic':
+        case 'qwen':
+            return ['text'];
+        case 'stability':
+            return ['image'];
+        case 'banana':
+            return ['agent'];
+        case 'custom':
+            return ['text', 'image', 'video'];
+        default:
+            return ['text'];
+    }
+};
+
+const normalizeApiKeyEntry = (item: Partial<UserApiKey>): UserApiKey | null => {
+    if (!item || !item.id || !item.provider || !item.key) return null;
+    return {
+        id: item.id,
+        provider: item.provider,
+        capabilities:
+            Array.isArray(item.capabilities) && item.capabilities.length > 0
+                ? item.capabilities
+                : inferCapabilitiesByProvider(item.provider),
+        key: item.key,
+        baseUrl: item.baseUrl,
+        name: item.name,
+        isDefault: item.isDefault,
+        status: item.status,
+        createdAt: item.createdAt || Date.now(),
+        updatedAt: item.updatedAt || Date.now(),
+    };
+};
+
+const hasCapabilityOverlap = (left: AICapability[], right: AICapability[]) =>
+    left.some(capability => right.includes(capability));
 
 const App: React.FC = () => {
     const [boards, setBoards] = useState<Board[]>(() => {
@@ -390,8 +434,7 @@ const App: React.FC = () => {
     const [selectionBox, setSelectionBox] = useState<Rect | null>(null);
     const [prompt, setPrompt] = useState('');
     const [chatAttachments, setChatAttachments] = useState<ChatAttachment[]>([]);
-    const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>('whiteboard');
-    // @ 引用元素 id 列表（由 PromptBar 在用户点击生成前同步过来）
+    // @ 瀵洜鏁ら崗鍐 id 閸掓銆冮敍鍫㈡暠 PromptBar 閸︺劎鏁ら幋椋庡仯閸戣崵鏁撻幋鎰閸氬本顒炴潻鍥ㄦ降閿?
     const [mentionedElementIds, setMentionedElementIds] = useState<string[]>([]);
     const [isEnhancingPrompt, setIsEnhancingPrompt] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
@@ -407,13 +450,14 @@ const App: React.FC = () => {
         const saved = localStorage.getItem('inspirationPanelMinimized');
         return saved === 'true';
     });
-    const [toolbarLeft, setToolbarLeft] = useState(68); // 工具栏的 left 位置
-    const [rightPanelWidth, setRightPanelWidth] = useState(2); // 右侧面板实际宽度（用于 PromptBar 同步）
+    const [toolbarLeft, setToolbarLeft] = useState(68); // 瀹搞儱鍙块弽蹇曟畱 left 娴ｅ秶鐤?
+    const [rightPanelWidth, setRightPanelWidth] = useState(2); // 閸欏厖鏅堕棃銏℃緲鐎圭偤妾€硅棄瀹抽敍鍫㈡暏閿?PromptBar 閸氬本顒為敓?
     const [wheelAction, setWheelAction] = useState<WheelAction>('zoom');
     const [croppingState, setCroppingState] = useState<{ elementId: string; originalElement: ImageElement; cropBox: Rect } | null>(null);
     const [alignmentGuides, setAlignmentGuides] = useState<Guide[]>([]);
     const [contextMenu, setContextMenu] = useState<{ x: number; y: number; elementId: string | null } | null>(null);
     const [assetLibrary, setAssetLibrary] = useState<AssetLibrary>(() => loadAssetLibrary());
+    const [generationHistory, setGenerationHistory] = useState<GenerationHistoryItem[]>(() => loadGenerationHistory());
     const [isAssetPanelOpen, setIsAssetPanelOpen] = useState(false);
     const [addAssetModal, setAddAssetModal] = useState<{ open: boolean; dataUrl: string; mimeType: string; width: number; height: number } | null>(null);
     
@@ -434,7 +478,12 @@ const App: React.FC = () => {
     const [userApiKeys, setUserApiKeys] = useState<UserApiKey[]>(() => {
         try {
             const raw = localStorage.getItem('userApiKeys.v1');
-            return raw ? JSON.parse(raw) : [];
+            const parsed = raw ? JSON.parse(raw) : [];
+            return Array.isArray(parsed)
+                ? parsed
+                    .map(normalizeApiKeyEntry)
+                    .filter((item): item is UserApiKey => !!item)
+                : [];
         } catch {
             return [];
         }
@@ -469,7 +518,7 @@ const App: React.FC = () => {
         return localStorage.getItem('characterLocks.activeId') || null;
     });
     
-    const [generationMode, setGenerationMode] = useState<'image' | 'video'>('image');
+    const [generationMode, setGenerationMode] = useState<'image' | 'video' | 'keyframe'>('image');
     const [videoAspectRatio, setVideoAspectRatio] = useState<'16:9' | '9:16'>('16:9');
     const [progressMessage, setProgressMessage] = useState<string>('');
 
@@ -528,27 +577,45 @@ const App: React.FC = () => {
         }
     }, [characterLocks, activeCharacterLockId]);
 
-    const getDefaultKeyByProvider = useCallback((provider: AIProvider) => {
-        const byProvider = userApiKeys.filter(key => key.provider === provider);
-        return byProvider.find(key => key.isDefault) || byProvider[0];
+    const getPreferredApiKey = useCallback((capability: AICapability, provider?: AIProvider) => {
+        const matches = userApiKeys.filter(key => {
+            const capabilities = key.capabilities?.length ? key.capabilities : inferCapabilitiesByProvider(key.provider);
+            return capabilities.includes(capability) && (!provider || key.provider === provider);
+        });
+        return matches.find(key => key.isDefault) || matches[0];
     }, [userApiKeys]);
 
     useEffect(() => {
-        const googleKey = getDefaultKeyByProvider('google');
-        const bananaKey = getDefaultKeyByProvider('banana');
+        const textProvider = inferProviderFromModel(modelPreference.textModel);
+        const imageProvider = inferProviderFromModel(modelPreference.imageModel);
+        const videoProvider = inferProviderFromModel(modelPreference.videoModel);
+
+        const googleTextKey = getPreferredApiKey('text', 'google');
+        const googleImageKey = getPreferredApiKey('image', 'google');
+        const googleVideoKey = getPreferredApiKey('video', 'google');
+        const bananaKey = getPreferredApiKey('agent', 'banana');
+
         setGeminiRuntimeConfig({
-            apiKey: googleKey?.key,
-            textModel: modelPreference.textModel,
-            imageModel: modelPreference.imageModel.startsWith('gemini') ? modelPreference.imageModel : undefined,
-            textToImageModel: modelPreference.imageModel.startsWith('imagen') ? modelPreference.imageModel : undefined,
-            videoModel: modelPreference.videoModel.startsWith('veo') ? modelPreference.videoModel : undefined,
+            textApiKey: googleTextKey?.key,
+            imageApiKey: googleImageKey?.key || googleTextKey?.key,
+            videoApiKey: googleVideoKey?.key || googleImageKey?.key || googleTextKey?.key,
+            textModel: textProvider === 'google' ? modelPreference.textModel : undefined,
+            imageModel:
+                imageProvider === 'google' && modelPreference.imageModel.startsWith('gemini')
+                    ? modelPreference.imageModel
+                    : undefined,
+            textToImageModel:
+                imageProvider === 'google' && modelPreference.imageModel.startsWith('imagen')
+                    ? modelPreference.imageModel
+                    : undefined,
+            videoModel: videoProvider === 'google' ? modelPreference.videoModel : undefined,
         });
         setBananaRuntimeConfig({
             apiKey: bananaKey?.key,
             splitUrl: bananaKey?.baseUrl ? `${bananaKey.baseUrl.replace(/\/$/, '')}/split-layers` : undefined,
             agentUrl: bananaKey?.baseUrl ? `${bananaKey.baseUrl.replace(/\/$/, '')}/agent` : undefined,
         });
-    }, [getDefaultKeyByProvider, modelPreference]);
+    }, [getPreferredApiKey, modelPreference]);
 
     const handleAddUserEffect = useCallback((effect: UserEffect) => {
         setUserEffects(prev => [...prev, effect]);
@@ -560,19 +627,31 @@ const App: React.FC = () => {
 
     const handleAddApiKey = useCallback((payload: Omit<UserApiKey, 'id' | 'createdAt' | 'updatedAt'>) => {
         const now = Date.now();
+        const capabilities = payload.capabilities?.length ? payload.capabilities : inferCapabilitiesByProvider(payload.provider);
         const nextKey: UserApiKey = {
             ...payload,
+            capabilities,
             id: generateId(),
             createdAt: now,
             updatedAt: now,
         };
         setUserApiKeys(prev => {
-            const sameProvider = prev.filter(k => k.provider === payload.provider);
-            const isFirstOfProvider = sameProvider.length === 0;
-            const withDefault = (payload.isDefault || isFirstOfProvider)
-                ? prev.map(k => k.provider === payload.provider ? { ...k, isDefault: false } : k)
+            const isFirstOfCapabilities = !prev.some(k =>
+                hasCapabilityOverlap(
+                    k.capabilities?.length ? k.capabilities : inferCapabilitiesByProvider(k.provider),
+                    capabilities
+                )
+            );
+            const shouldSetDefault = payload.isDefault || isFirstOfCapabilities;
+            const withDefault = shouldSetDefault
+                ? prev.map(k => {
+                    const existingCaps = k.capabilities?.length ? k.capabilities : inferCapabilitiesByProvider(k.provider);
+                    return hasCapabilityOverlap(existingCaps, capabilities)
+                        ? { ...k, isDefault: false }
+                        : k;
+                })
                 : prev;
-            return [{ ...nextKey, isDefault: payload.isDefault || isFirstOfProvider }, ...withDefault];
+            return [{ ...nextKey, isDefault: shouldSetDefault }, ...withDefault];
         });
     }, []);
 
@@ -584,7 +663,13 @@ const App: React.FC = () => {
         setUserApiKeys(prev => {
             const target = prev.find(k => k.id === id);
             if (!target) return prev;
-            return prev.map(k => k.provider === target.provider ? { ...k, isDefault: k.id === id } : k);
+            const targetCaps = target.capabilities?.length ? target.capabilities : inferCapabilitiesByProvider(target.provider);
+            return prev.map(k => {
+                const existingCaps = k.capabilities?.length ? k.capabilities : inferCapabilitiesByProvider(k.provider);
+                return hasCapabilityOverlap(existingCaps, targetCaps)
+                    ? { ...k, isDefault: k.id === id }
+                    : k;
+            });
         });
     }, []);
 
@@ -601,10 +686,10 @@ const App: React.FC = () => {
 
     const handleLockCharacterFromSelection = useCallback((name?: string) => {
         if (!selectedSingleImage) {
-            setError('请选择一张图片后再锁定角色。');
+            setError('Please select an image before locking a character.');
             return;
         }
-        const lockName = name?.trim() || selectedSingleImage.name || `角色 ${characterLocks.length + 1}`;
+        const lockName = name?.trim() || selectedSingleImage.name || `Character ${characterLocks.length + 1}`;
         const descriptor = [
             `Character lock: ${lockName}.`,
             'Keep face, hairstyle, costume, body shape, and age consistent across all shots.',
@@ -633,17 +718,41 @@ const App: React.FC = () => {
     }) => {
         setIsEnhancingPrompt(true);
         try {
-            return await enhancePromptWithGemini(payload);
+            const provider = inferProviderFromModel(modelPreference.textModel);
+            const key = getPreferredApiKey('text', provider);
+            return await enhancePromptWithProvider(payload, modelPreference.textModel, key);
         } finally {
             setIsEnhancingPrompt(false);
         }
-    }, []);
+    }, [getPreferredApiKey, modelPreference.textModel]);
 
     const handleSetActiveCharacterLock = useCallback((id: string | null) => {
         setActiveCharacterLockId(id);
         setCharacterLocks(prev =>
             prev.map(lock => ({ ...lock, isActive: id ? lock.id === id : false }))
         );
+    }, []);
+
+    const saveGenerationToHistory = useCallback((payload: {
+        name?: string;
+        dataUrl: string;
+        mimeType: string;
+        width: number;
+        height: number;
+        prompt: string;
+    }) => {
+        const item: GenerationHistoryItem = {
+            id: generateId(),
+            name: payload.name,
+            dataUrl: payload.dataUrl,
+            mimeType: payload.mimeType,
+            width: payload.width,
+            height: payload.height,
+            prompt: payload.prompt,
+            createdAt: Date.now(),
+        };
+
+        setGenerationHistory(prev => addGenerationHistoryItem(prev, item));
     }, []);
 
     const addChatAttachment = useCallback((payload: Omit<ChatAttachment, 'id'>) => {
@@ -677,7 +786,7 @@ const App: React.FC = () => {
                 });
             });
         } catch (error) {
-            const message = error instanceof Error ? error.message : '附件上传失败。';
+            const message = error instanceof Error ? error.message : 'Attachment upload failed.';
             setError(message);
         }
     }, [addChatAttachment]);
@@ -1589,7 +1698,7 @@ const App: React.FC = () => {
         try {
             setIsLoading(true);
             setError(null);
-            setProgressMessage('BANANA 正在识别图片并拆分图层...');
+            setProgressMessage('BANANA is splitting the image into layers...');
 
             const layers = await splitImageByBanana({
                 href: element.href,
@@ -1658,13 +1767,13 @@ const App: React.FC = () => {
 
             if (insertedIds.length > 0) {
                 setSelectedElementIds(insertedIds);
-                setProgressMessage(`BANANA 已拆分 ${insertedIds.length} 个图层`);
+                setProgressMessage(`BANANA created ${insertedIds.length} layers.`);
             } else {
                 setProgressMessage('');
             }
         } catch (err) {
             const error = err as Error;
-            setError(`BANANA 拆层失败：${error.message}`);
+            setError(`BANANA split failed: ${error.message}`);
         } finally {
             setIsLoading(false);
             setTimeout(() => setProgressMessage(''), 1200);
@@ -1675,17 +1784,17 @@ const App: React.FC = () => {
         try {
             setIsLoading(true);
             setError(null);
-            setProgressMessage('BANANA Agent 正在进行高清放大...');
+            setProgressMessage('BANANA Agent 濮濓絽婀潻娑滎攽妤傛ɑ绔婚弨鎯с亣...');
             const result = await runBananaImageAgent(
                 { href: element.href, mimeType: element.mimeType },
                 'upscale',
                 { scale: 2 }
             );
             await insertImageAgentResult(element, result.dataUrl, 'Upscaled x2', 2, result.mimeType);
-            setProgressMessage('高清放大完成');
+            setProgressMessage('Upscale completed.');
         } catch (err) {
             const error = err as Error;
-            setError(`BANANA 高清放大失败：${error.message}`);
+            setError(`BANANA upscale failed: ${error.message}`);
         } finally {
             setIsLoading(false);
             setTimeout(() => setProgressMessage(''), 1200);
@@ -1696,16 +1805,16 @@ const App: React.FC = () => {
         try {
             setIsLoading(true);
             setError(null);
-            setProgressMessage('BANANA Agent 正在去除背景...');
+            setProgressMessage('BANANA Agent 濮濓絽婀崢濠氭珟閼冲本娅?..');
             const result = await runBananaImageAgent(
                 { href: element.href, mimeType: element.mimeType },
                 'remove-background'
             );
             await insertImageAgentResult(element, result.dataUrl, 'Background Removed', undefined, result.mimeType);
-            setProgressMessage('去背景完成');
+            setProgressMessage('Background removal completed.');
         } catch (err) {
             const error = err as Error;
-            setError(`BANANA 去背景失败：${error.message}`);
+            setError(`BANANA background removal failed: ${error.message}`);
         } finally {
             setIsLoading(false);
             setTimeout(() => setProgressMessage(''), 1200);
@@ -1815,9 +1924,16 @@ const App: React.FC = () => {
             ? [{ href: activeCharacterLock.referenceImage, mimeType: getMimeFromDataUrl(activeCharacterLock.referenceImage) }]
             : [];
         const attachmentReferenceImages = chatAttachments.map(item => ({ href: item.href, mimeType: item.mimeType }));
+        const imageProvider = inferProviderFromModel(modelPreference.imageModel);
+        const videoProvider = inferProviderFromModel(modelPreference.videoModel);
+        const supportsReferenceEditing = imageProvider === 'google';
+        const imageOutputName = generationMode === 'keyframe' ? 'Keyframe' : 'Generated Image';
 
         if (generationMode === 'video') {
             try {
+                if (videoProvider !== 'google') {
+                    throw new Error('Current video generation only supports Google Veo models. Please configure a Google video API key in settings.');
+                }
                 const selectedElements = elements.filter(el => selectedElementIds.includes(el.id));
                 const imageElement = selectedElements.find(el => el.type === 'image') as ImageElement | undefined;
                 const attachmentImage = chatAttachments[0];
@@ -1902,12 +2018,16 @@ const App: React.FC = () => {
         try {
             const isEditing = selectedElementIds.length > 0;
 
-            // Collect @mention reference images (只取图片类元素，排除已在 selection 中的)
+            // Collect @mention reference images (閸欘亜褰囬崶鍓у缁鍘撶槐鐙呯礉閹烘帡娅庡鎻掓躬 selection 娑擃厾娈?
             const mentionedImageElements = mentionedElementIds
                 .map(id => elements.find(el => el.id === id))
                 .filter((el): el is ImageElement => !!el && el.type === 'image' && !selectedElementIds.includes(el.id));
 
             if (isEditing) {
+                if (!supportsReferenceEditing) {
+                    setError('The current image model does not support whiteboard-based editing or compositing. Please switch to a Gemini or Imagen image model.');
+                    return;
+                }
                 const selectedElements = elements.filter(el => selectedElementIds.includes(el.id));
                 const imageElements = selectedElements.filter(el => el.type === 'image') as ImageElement[];
                 const maskPaths = selectedElements.filter(el => el.type === 'path' && el.strokeOpacity && el.strokeOpacity < 1) as PathElement[];
@@ -1928,12 +2048,13 @@ const App: React.FC = () => {
                         const img = new Image();
                         img.onload = () => {
                             const maskPathIds = new Set(maskPaths.map(p => p.id));
+                            const nextDataUrl = `data:${newImageMimeType};base64,${newImageBase64}`;
                             commitAction(prev => 
                                 prev.map(el => {
                                     if (el.id === baseImage.id && el.type === 'image') {
                                         return {
                                             ...el,
-                                            href: `data:${newImageMimeType};base64,${newImageBase64}`,
+                                            href: nextDataUrl,
                                             width: img.width,
                                             height: img.height,
                                         };
@@ -1942,6 +2063,14 @@ const App: React.FC = () => {
                                 }).filter(el => !maskPathIds.has(el.id))
                             );
                             setSelectedElementIds([baseImage.id]);
+                            saveGenerationToHistory({
+                                name: baseImage.name || 'Edited image',
+                                dataUrl: nextDataUrl,
+                                mimeType: newImageMimeType,
+                                width: img.width,
+                                height: img.height,
+                                prompt: effectivePrompt,
+                            });
                         };
                         img.onerror = () => setError('Failed to load the generated image.');
                         img.src = `data:${newImageMimeType};base64,${newImageBase64}`;
@@ -1983,12 +2112,20 @@ const App: React.FC = () => {
                         const y = minY;
                         
                         const newImage: ImageElement = {
-                            id: generateId(), type: 'image', x, y, name: 'Generated Image',
+                            id: generateId(), type: 'image', x, y, name: imageOutputName,
                             width: img.width, height: img.height,
                             href: `data:${newImageMimeType};base64,${newImageBase64}`, mimeType: newImageMimeType,
                         };
                         commitAction(prev => [...prev, newImage]);
                         setSelectedElementIds([newImage.id]);
+                        saveGenerationToHistory({
+                            name: newImage.name,
+                            dataUrl: newImage.href,
+                            mimeType: newImage.mimeType,
+                            width: newImage.width,
+                            height: newImage.height,
+                            prompt: effectivePrompt,
+                        });
                     };
                     img.onerror = () => setError('Failed to load the generated image.');
                     img.src = `data:${newImageMimeType};base64,${newImageBase64}`;
@@ -1997,7 +2134,11 @@ const App: React.FC = () => {
                 }
 
             } else if (mentionedImageElements.length > 0) {
-                // No canvas selection, but user @mentioned image elements → use editImage as reference-guided generation
+                if (!supportsReferenceEditing) {
+                    setError('The current image model does not support @ reference image generation. Please switch to a Gemini or Imagen image model.');
+                    return;
+                }
+                // No canvas selection, but user @mentioned image elements 閿?use editImage as reference-guided generation
                 setProgressMessage('Generating with reference images...');
                 const mentionRefs = mentionedImageElements.map(el => ({ href: el.href, mimeType: el.mimeType }));
                 const result = await editImage([...mentionRefs, ...attachmentReferenceImages, ...characterReferenceImages], effectivePrompt);
@@ -2013,12 +2154,20 @@ const App: React.FC = () => {
                         const x = canvasPoint.x - (img.width / 2);
                         const y = canvasPoint.y - (img.height / 2);
                         const newImage: ImageElement = {
-                            id: generateId(), type: 'image', x, y, name: 'Generated Image',
+                            id: generateId(), type: 'image', x, y, name: imageOutputName,
                             width: img.width, height: img.height,
                             href: `data:${newImageMimeType};base64,${newImageBase64}`, mimeType: newImageMimeType,
                         };
                         commitAction(prev => [...prev, newImage]);
                         setSelectedElementIds([newImage.id]);
+                        saveGenerationToHistory({
+                            name: newImage.name,
+                            dataUrl: newImage.href,
+                            mimeType: newImage.mimeType,
+                            width: newImage.width,
+                            height: newImage.height,
+                            prompt: effectivePrompt,
+                        });
                     };
                     img.onerror = () => setError('Failed to load the generated image.');
                     img.src = `data:${newImageMimeType};base64,${newImageBase64}`;
@@ -2029,9 +2178,17 @@ const App: React.FC = () => {
             } else {
                 // Generate from scratch
                 const baseRefs = [...attachmentReferenceImages, ...characterReferenceImages];
+                if (baseRefs.length > 0 && !supportsReferenceEditing) {
+                    setError('The current image model does not support reference image generation. Please switch to a Gemini or Imagen image model.');
+                    return;
+                }
                 const result = baseRefs.length > 0
                     ? await editImage(baseRefs, effectivePrompt)
-                    : await generateImageFromText(effectivePrompt);
+                    : await generateImageWithProvider(
+                        effectivePrompt,
+                        modelPreference.imageModel,
+                        getPreferredApiKey('image', imageProvider)
+                    );
 
                 if (result.newImageBase64 && result.newImageMimeType) {
                     const { newImageBase64, newImageMimeType } = result;
@@ -2046,12 +2203,20 @@ const App: React.FC = () => {
                         const y = canvasPoint.y - (img.height / 2);
                         
                         const newImage: ImageElement = {
-                            id: generateId(), type: 'image', x, y, name: 'Generated Image',
+                            id: generateId(), type: 'image', x, y, name: imageOutputName,
                             width: img.width, height: img.height,
                             href: `data:${newImageMimeType};base64,${newImageBase64}`, mimeType: newImageMimeType,
                         };
                         commitAction(prev => [...prev, newImage]);
                         setSelectedElementIds([newImage.id]);
+                        saveGenerationToHistory({
+                            name: newImage.name,
+                            dataUrl: newImage.href,
+                            mimeType: newImage.mimeType,
+                            width: newImage.width,
+                            height: newImage.height,
+                            prompt: effectivePrompt,
+                        });
                     };
                     img.onerror = () => setError('Failed to load the generated image.');
                     img.src = `data:${newImageMimeType};base64,${newImageBase64}`;
@@ -2452,30 +2617,6 @@ const App: React.FC = () => {
                     </button>
                 </div>
             )}
-            <div className="absolute top-4 left-1/2 -translate-x-1/2 z-[45]">
-                <div className="inline-flex items-center rounded-full border border-neutral-200/80 bg-white/95 backdrop-blur-md p-1 shadow-lg">
-                    <button
-                        onClick={() => setWorkspaceMode('whiteboard')}
-                        className={`px-3 py-1 text-xs rounded-full transition-colors ${
-                            workspaceMode === 'whiteboard'
-                                ? 'bg-neutral-900 text-white'
-                                : 'text-neutral-700 hover:bg-neutral-100'
-                        }`}
-                    >
-                        🎨 自由白板
-                    </button>
-                    <button
-                        onClick={() => setWorkspaceMode('node')}
-                        className={`px-3 py-1 text-xs rounded-full transition-colors ${
-                            workspaceMode === 'node'
-                                ? 'bg-neutral-900 text-white'
-                                : 'text-neutral-700 hover:bg-neutral-100'
-                        }`}
-                    >
-                        🔗 节点工作流
-                    </button>
-                </div>
-            </div>
             <BoardPanel
                 isOpen={isBoardPanelOpen}
                 onClose={() => setIsBoardPanelOpen(false)}
@@ -2489,20 +2630,22 @@ const App: React.FC = () => {
                 generateBoardThumbnail={(els) => generateBoardThumbnail(els, activeBoard.canvasBackgroundColor)}
             />
             {/* New Right Panel (multi-function: generate + inspiration) */}
-            {workspaceMode === 'whiteboard' && (
-                <RightPanel
-                    isMinimized={isInspirationMinimized}
-                    onToggleMinimize={() => setIsInspirationMinimized(prev => !prev)}
-                    library={assetLibrary}
-                    onRemove={(cat, id) => setAssetLibrary(prev => removeAsset(prev, cat, id))}
-                    onRename={(cat, id, name) => setAssetLibrary(prev => renameAsset(prev, cat, id, name))}
-                    onGenerate={(nextPrompt) => {
-                        setPrompt(nextPrompt);
-                        handleGenerate(nextPrompt);
-                    }}
-                    onWidthChange={setRightPanelWidth}
-                />
-            )}
+            <RightPanel
+                isMinimized={isInspirationMinimized}
+                onToggleMinimize={() => setIsInspirationMinimized(prev => !prev)}
+                library={assetLibrary}
+                generationHistory={generationHistory}
+                attachments={chatAttachments}
+                onRemove={(cat, id) => setAssetLibrary(prev => removeAsset(prev, cat, id))}
+                onRename={(cat, id, name) => setAssetLibrary(prev => renameAsset(prev, cat, id, name))}
+                onGenerate={(nextPrompt) => {
+                    setPrompt(nextPrompt);
+                    handleGenerate(nextPrompt);
+                }}
+                onAddAttachments={handleAddAttachmentFiles}
+                onRemoveAttachment={handleRemoveChatAttachment}
+                onWidthChange={setRightPanelWidth}
+            />
             <CanvasSettings 
                 isOpen={isSettingsPanelOpen} 
                 onClose={() => setIsSettingsPanelOpen(false)} 
@@ -2524,38 +2667,36 @@ const App: React.FC = () => {
                 setModelPreference={setModelPreference}
                 t={t}
             />
-            {workspaceMode === 'whiteboard' && (
-                <>
-                    <Toolbar
-                        t={t}
-                        activeTool={activeTool}
-                        setActiveTool={setActiveTool}
-                        drawingOptions={drawingOptions}
-                        setDrawingOptions={setDrawingOptions}
-                        onUpload={handleAddImageElement}
-                        isCropping={!!croppingState}
-                        onConfirmCrop={handleConfirmCrop}
-                        onCancelCrop={handleCancelCrop}
-                        onSettingsClick={() => setIsSettingsPanelOpen(true)}
-                        onLayersClick={() => {}}
-                        onBoardsClick={() => setIsBoardPanelOpen(prev => !prev)}
-                        onAssetsClick={() => setIsInspirationMinimized(prev => !prev)}
-                        onUndo={handleUndo}
-                        onRedo={handleRedo}
-                        isLayerPanelExpanded={!isLayerMinimized}
-                        onHeightChange={() => { /* reserved for aligning external buttons under toolbar */ }}
-                        onLeftChange={(left) => setToolbarLeft(left)}
-                        canUndo={historyIndex > 0}
-                        canRedo={historyIndex < history.length - 1}
-                    />
-                    {/* Layer Toggle Button - positioned at bottom of toolbar column */}
-                    <LayerToggleButton
-                        isLayerMinimized={isLayerMinimized}
-                        onToggle={() => setIsLayerMinimized(prev => !prev)}
-                        toolbarLeft={toolbarLeft}
-                    />
-                </>
-            )}
+            <>
+                <Toolbar
+                    t={t}
+                    activeTool={activeTool}
+                    setActiveTool={setActiveTool}
+                    drawingOptions={drawingOptions}
+                    setDrawingOptions={setDrawingOptions}
+                    onUpload={handleAddImageElement}
+                    isCropping={!!croppingState}
+                    onConfirmCrop={handleConfirmCrop}
+                    onCancelCrop={handleCancelCrop}
+                    onSettingsClick={() => setIsSettingsPanelOpen(true)}
+                    onLayersClick={() => {}}
+                    onBoardsClick={() => setIsBoardPanelOpen(prev => !prev)}
+                    onAssetsClick={() => setIsInspirationMinimized(prev => !prev)}
+                    onUndo={handleUndo}
+                    onRedo={handleRedo}
+                    isLayerPanelExpanded={!isLayerMinimized}
+                    onHeightChange={() => { /* reserved for aligning external buttons under toolbar */ }}
+                    onLeftChange={(left) => setToolbarLeft(left)}
+                    canUndo={historyIndex > 0}
+                    canRedo={historyIndex < history.length - 1}
+                />
+                {/* Layer Toggle Button - positioned at bottom of toolbar column */}
+                <LayerToggleButton
+                    isLayerMinimized={isLayerMinimized}
+                    onToggle={() => setIsLayerMinimized(prev => !prev)}
+                    toolbarLeft={toolbarLeft}
+                />
+            </>
             {addAssetModal?.open && (
                 <AssetAddModal 
                     isOpen={addAssetModal.open}
@@ -2578,68 +2719,43 @@ const App: React.FC = () => {
                 />
             )}
             {/* New Layer Panel (left side, minimizable) */}
-            {workspaceMode === 'whiteboard' && (
-                <LayerPanelMinimizable
-                    isMinimized={isLayerMinimized}
-                    onToggleMinimize={() => setIsLayerMinimized(prev => !prev)}
-                    elements={elements}
-                    selectedElementIds={selectedElementIds}
-                    onSelectElement={id => setSelectedElementIds(id ? [id] : [])}
-                    onToggleVisibility={id => handlePropertyChange(id, { isVisible: !(elements.find(el => el.id === id)?.isVisible ?? true) })}
-                    onToggleLock={id => handlePropertyChange(id, { isLocked: !(elements.find(el => el.id === id)?.isLocked ?? false) })}
-                    onRenameElement={(id, name) => handlePropertyChange(id, { name })}
-                    onReorder={(draggedId, targetId, position) => {
-                        commitAction(prev => {
-                            const newElements = [...prev];
-                            const draggedIndex = newElements.findIndex(el => el.id === draggedId);
-                            if (draggedIndex === -1) return prev;
+            <LayerPanelMinimizable
+                isMinimized={isLayerMinimized}
+                onToggleMinimize={() => setIsLayerMinimized(prev => !prev)}
+                elements={elements}
+                selectedElementIds={selectedElementIds}
+                onSelectElement={id => setSelectedElementIds(id ? [id] : [])}
+                onToggleVisibility={id => handlePropertyChange(id, { isVisible: !(elements.find(el => el.id === id)?.isVisible ?? true) })}
+                onToggleLock={id => handlePropertyChange(id, { isLocked: !(elements.find(el => el.id === id)?.isLocked ?? false) })}
+                onRenameElement={(id, name) => handlePropertyChange(id, { name })}
+                onReorder={(draggedId, targetId, position) => {
+                    commitAction(prev => {
+                        const newElements = [...prev];
+                        const draggedIndex = newElements.findIndex(el => el.id === draggedId);
+                        if (draggedIndex === -1) return prev;
 
-                            const [draggedItem] = newElements.splice(draggedIndex, 1);
-                            const targetIndex = newElements.findIndex(el => el.id === targetId);
-                            if (targetIndex === -1) {
-                                newElements.push(draggedItem); // Fallback
-                                return newElements;
-                            }
-
-                            const finalIndex = position === 'before' ? targetIndex : targetIndex + 1;
-                            newElements.splice(finalIndex, 0, draggedItem);
-
+                        const [draggedItem] = newElements.splice(draggedIndex, 1);
+                        const targetIndex = newElements.findIndex(el => el.id === targetId);
+                        if (targetIndex === -1) {
+                            newElements.push(draggedItem); // Fallback
                             return newElements;
-                        });
-                    }}
-                />
-            )}
+                        }
+
+                        const finalIndex = position === 'before' ? targetIndex : targetIndex + 1;
+                        newElements.splice(finalIndex, 0, draggedItem);
+
+                        return newElements;
+                    });
+                }}
+            />
             <div 
                 className="flex-grow relative overflow-hidden"
                 style={{
-                    paddingRight: workspaceMode === 'whiteboard' ? `${rightPanelWidth + 32}px` : '0px',
-                    paddingBottom: workspaceMode === 'whiteboard' ? (croppingState ? '0px' : '96px') : '0px',
+                    paddingRight: `${rightPanelWidth + 32}px`,
+                    paddingBottom: croppingState ? '0px' : '96px',
                     transition: 'padding-right 0.35s cubic-bezier(0.4, 0, 0.2, 1), padding-bottom 0.35s cubic-bezier(0.4, 0, 0.2, 1)'
                 }}
             >
-                {workspaceMode === 'node' && (
-                    <NodeWorkflowPanel
-                        prompt={prompt}
-                        setPrompt={setPrompt}
-                        generationMode={generationMode}
-                        setGenerationMode={setGenerationMode}
-                        selectedImageModel={modelPreference.imageModel}
-                        selectedVideoModel={modelPreference.videoModel}
-                        imageModelOptions={IMAGE_MODEL_OPTIONS}
-                        videoModelOptions={VIDEO_MODEL_OPTIONS}
-                        onImageModelChange={(model) => setModelPreference(prev => ({ ...prev, imageModel: model }))}
-                        onVideoModelChange={(model) => setModelPreference(prev => ({ ...prev, videoModel: model }))}
-                        attachments={chatAttachments}
-                        canvasImages={elements
-                            .filter((el): el is ImageElement => el.type === 'image')
-                            .map(el => ({ id: el.id, name: el.name, href: el.href, mimeType: el.mimeType }))}
-                        onRemoveAttachment={handleRemoveChatAttachment}
-                        onUploadFiles={handleAddAttachmentFiles}
-                        onDropCanvasImage={handleAddAttachmentFromCanvas}
-                        isRunning={isLoading || isEnhancingPrompt}
-                        onRunWorkflow={handleRunNodeWorkflow}
-                    />
-                )}
                 <svg
                     ref={svgRef}
                     className="w-full h-full"
@@ -2772,8 +2888,6 @@ const App: React.FC = () => {
                                     <g
                                         key={el.id}
                                         data-id={el.id}
-                                        draggable={workspaceMode === 'node'}
-                                        onDragStart={(e) => handleCanvasImageDragStart(el, e)}
                                     >
                                         <image 
                                             transform={`translate(${el.x}, ${el.y})`} 
@@ -2875,19 +2989,19 @@ const App: React.FC = () => {
                                     <div className="p-1.5 bg-white rounded-lg shadow-lg flex items-center justify-start space-x-2 border border-gray-200 text-gray-800 overflow-x-auto">
                                         <button title={t('contextMenu.copy')} onClick={() => handleCopyElement(element)} className="p-2 rounded hover:bg-gray-100 flex items-center justify-center"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>
                                         {element.type === 'image' && <button title={t('contextMenu.download')} onClick={() => handleDownloadImage(element)} className="p-2 rounded hover:bg-gray-100 flex items-center justify-center"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg></button>}
-                                        {element.type === 'image' && <button title="加入素材库" onClick={async () => {
+                                        {element.type === 'image' && <button title="Add to asset library" onClick={async () => {
                                                 const { href, mimeType, width, height } = { href: (element as ImageElement).href, mimeType: (element as ImageElement).mimeType, width: (element as ImageElement).width, height: (element as ImageElement).height };
                                                 setAddAssetModal({ open: true, dataUrl: href, mimeType, width, height });
                                             }} className="p-2 rounded hover:bg-gray-100 flex items-center justify-center">
                                                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/><path d="M12 8v8"/></svg>
                                             </button>}
-                                        {element.type === 'image' && <button title="BANANA 一键识别拆层" onClick={() => handleSplitImageWithBanana(element)} className="p-2 rounded hover:bg-gray-100 flex items-center justify-center disabled:opacity-50" disabled={isLoading}>
+                                        {element.type === 'image' && <button title="Split into layers with BANANA" onClick={() => handleSplitImageWithBanana(element)} className="p-2 rounded hover:bg-gray-100 flex items-center justify-center disabled:opacity-50" disabled={isLoading}>
                                                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="8" height="8" rx="1"></rect><rect x="13" y="3" width="8" height="8" rx="1"></rect><rect x="3" y="13" width="8" height="8" rx="1"></rect><path d="M13 17h8"></path><path d="M17 13v8"></path></svg>
                                             </button>}
-                                        {element.type === 'image' && <button title="BANANA Agent：高清放大 x2" onClick={() => handleUpscaleImageWithBanana(element)} className="p-2 rounded hover:bg-gray-100 flex items-center justify-center disabled:opacity-50" disabled={isLoading}>
+                                        {element.type === 'image' && <button title="BANANA Agent: upscale x2" onClick={() => handleUpscaleImageWithBanana(element)} className="p-2 rounded hover:bg-gray-100 flex items-center justify-center disabled:opacity-50" disabled={isLoading}>
                                                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="7"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line><line x1="11" y1="8" x2="11" y2="14"></line><line x1="8" y1="11" x2="14" y2="11"></line></svg>
                                             </button>}
-                                        {element.type === 'image' && <button title="BANANA Agent：智能去背景" onClick={() => handleRemoveBackgroundWithBanana(element)} className="p-2 rounded hover:bg-gray-100 flex items-center justify-center disabled:opacity-50" disabled={isLoading}>
+                                        {element.type === 'image' && <button title="BANANA Agent: remove background" onClick={() => handleRemoveBackgroundWithBanana(element)} className="p-2 rounded hover:bg-gray-100 flex items-center justify-center disabled:opacity-50" disabled={isLoading}>
                                                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3l18 18"></path><path d="M20 12a8 8 0 0 1-11.31 7.31"></path><path d="M4 12a8 8 0 0 1 11.31-7.31"></path></svg>
                                             </button>}
                                         {element.type === 'video' && <a title={t('contextMenu.download')} href={element.href} download={`video-${element.id}.mp4`} className="p-2 rounded hover:bg-gray-100 flex items-center justify-center"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg></a>}
@@ -3015,7 +3129,7 @@ const App: React.FC = () => {
                     );
                 })()}
             </div>
-            {!croppingState && workspaceMode === 'whiteboard' && (
+            {!croppingState && (
                 <div 
                     className="absolute bottom-0 left-0 right-0 z-[40] transition-all duration-300 ease-out flex justify-center pointer-events-none"
                     style={{
@@ -3040,10 +3154,13 @@ const App: React.FC = () => {
                             setGenerationMode={setGenerationMode}
                             videoAspectRatio={videoAspectRatio}
                             setVideoAspectRatio={setVideoAspectRatio}
+                            selectedTextModel={modelPreference.textModel}
                             selectedImageModel={modelPreference.imageModel}
                             selectedVideoModel={modelPreference.videoModel}
+                            textModelOptions={TEXT_MODEL_OPTIONS}
                             imageModelOptions={IMAGE_MODEL_OPTIONS}
                             videoModelOptions={VIDEO_MODEL_OPTIONS}
+                            onTextModelChange={(model) => setModelPreference(prev => ({ ...prev, textModel: model }))}
                             onImageModelChange={(model) => setModelPreference(prev => ({ ...prev, imageModel: model }))}
                             onVideoModelChange={(model) => setModelPreference(prev => ({ ...prev, videoModel: model }))}
                             canvasElements={elements}
@@ -3064,3 +3181,4 @@ const App: React.FC = () => {
 };
 
 export default App;
+
