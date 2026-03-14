@@ -1,7 +1,5 @@
-import React, { useRef, useState, useEffect } from 'react';
-import type { AssetLibrary, AssetCategory, AssetItem } from '../types';
-
-type RightPanelTab = 'generate' | 'inspiration';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import type { AssetCategory, AssetItem, AssetLibrary, Element, Tool } from '../types';
 
 interface RightPanelProps {
     isMinimized: boolean;
@@ -10,26 +8,134 @@ interface RightPanelProps {
     onRemove: (category: AssetCategory, id: string) => void;
     onRename: (category: AssetCategory, id: string, name: string) => void;
     onGenerate: (prompt: string) => void;
-    onWidthChange?: (width: number) => void; // 报告当前实际宽度
+    onWidthChange?: (width: number) => void;
+    embedded?: boolean;
+    isCompact?: boolean;
+    compactBottomInset?: number;
+    selectedElements?: Element[];
+    activeTool?: Tool;
+    zoom?: number;
+    drawingOptions?: { strokeColor: string; strokeWidth: number };
+    onElementUpdate?: (id: string, updates: Partial<Element>) => void;
+    onAlignSelection?: (alignment: 'left' | 'center' | 'right' | 'top' | 'middle' | 'bottom') => void;
 }
 
-const CategoryTabs: React.FC<{ value: AssetCategory; onChange: (c: AssetCategory) => void }> = ({ value, onChange }) => (
-    <div className="inline-flex rounded-lg bg-neutral-100 p-0.5 gap-0.5">
-        {(['character', 'scene', 'prop'] as AssetCategory[]).map(cat => (
-            <button
-                key={cat}
-                onClick={() => onChange(cat)}
-                className={`px-3 py-1 text-xs rounded-md transition-all ${
-                    value === cat 
-                        ? 'bg-white text-neutral-900 shadow-sm' 
-                        : 'text-neutral-600 hover:text-neutral-900'
-                }`}
-            >
-                {cat === 'character' ? '角色' : cat === 'scene' ? '场景' : '道具'}
-            </button>
-        ))}
-    </div>
-);
+type RightPanelTab = 'chat' | 'inspect' | 'library';
+
+const categoryOptions: Array<{ value: AssetCategory; label: string }> = [
+    { value: 'character', label: '角色' },
+    { value: 'scene', label: '场景' },
+    { value: 'prop', label: '道具' },
+];
+
+const skillOptions = [
+    '社媒轮播图',
+    '社交媒体',
+    'Logo 与品牌',
+    '分镜故事板',
+    '营销宣传册',
+    '亚马逊产品图',
+];
+
+const inputShellClass =
+    'w-full rounded-2xl border border-neutral-200 bg-white px-3 py-2 text-[13px] text-neutral-800 outline-none transition-colors focus:border-neutral-300';
+
+function getElementLabel(element: Element): string {
+    if (element.name?.trim()) return element.name;
+    if (element.type === 'shape') {
+        const labels = { rectangle: '矩形', circle: '圆形', triangle: '三角形' };
+        return labels[element.shapeType];
+    }
+
+    const labels: Record<Element['type'], string> = {
+        image: '图片',
+        video: '视频',
+        shape: '形状',
+        text: '文本',
+        path: '路径',
+        group: '分组',
+        arrow: '箭头',
+        line: '线条',
+    };
+    return labels[element.type];
+}
+
+function hasSize(element: Element): element is Extract<Element, { width: number; height: number }> {
+    return 'width' in element && 'height' in element;
+}
+
+function hasStroke(element: Element): element is Extract<Element, { strokeColor: string; strokeWidth: number }> {
+    return 'strokeColor' in element && 'strokeWidth' in element;
+}
+
+const NumberField: React.FC<{
+    label: string;
+    value: number;
+    disabled?: boolean;
+    onCommit?: (value: number) => void;
+}> = ({ label, value, disabled = false, onCommit }) => {
+    const [draft, setDraft] = useState(String(Math.round(value)));
+
+    useEffect(() => {
+        setDraft(String(Math.round(value)));
+    }, [value]);
+
+    return (
+        <label className="block">
+            <div className="mb-1 text-[11px] uppercase tracking-[0.14em] text-neutral-400">{label}</div>
+            <input
+                value={draft}
+                disabled={disabled}
+                onChange={(event) => setDraft(event.target.value)}
+                onBlur={() => {
+                    const next = Number(draft);
+                    if (Number.isFinite(next)) onCommit?.(next);
+                    else setDraft(String(Math.round(value)));
+                }}
+                onKeyDown={(event) => {
+                    if (event.key === 'Enter') {
+                        const next = Number(draft);
+                        if (Number.isFinite(next)) onCommit?.(next);
+                    }
+                    if (event.key === 'Escape') {
+                        setDraft(String(Math.round(value)));
+                    }
+                }}
+                className={`${inputShellClass} ${disabled ? 'cursor-not-allowed bg-neutral-50 text-neutral-400' : ''}`}
+            />
+        </label>
+    );
+};
+
+const AlignButtons: React.FC<{
+    disabled: boolean;
+    onAlign?: (alignment: 'left' | 'center' | 'right' | 'top' | 'middle' | 'bottom') => void;
+}> = ({ disabled, onAlign }) => {
+    const items: Array<{ id: 'left' | 'center' | 'right' | 'top' | 'middle' | 'bottom'; label: string }> = [
+        { id: 'left', label: '左' },
+        { id: 'center', label: '中' },
+        { id: 'right', label: '右' },
+        { id: 'top', label: '上' },
+        { id: 'middle', label: '中线' },
+        { id: 'bottom', label: '下' },
+    ];
+
+    return (
+        <div className="grid grid-cols-6 gap-2">
+            {items.map(item => (
+                <button
+                    key={item.id}
+                    type="button"
+                    disabled={disabled}
+                    onClick={() => onAlign?.(item.id)}
+                    className="rounded-xl border border-neutral-200 bg-white px-2 py-2 text-xs text-neutral-600 transition-colors hover:bg-neutral-50 hover:text-neutral-900 disabled:opacity-35"
+                >
+                    {item.label}
+                </button>
+            ))}
+        </div>
+    );
+};
 
 export const RightPanel: React.FC<RightPanelProps> = ({
     isMinimized,
@@ -38,61 +144,36 @@ export const RightPanel: React.FC<RightPanelProps> = ({
     onRemove,
     onRename,
     onGenerate,
-    onWidthChange
+    onWidthChange,
+    embedded = false,
+    isCompact = false,
+    compactBottomInset = 8,
+    selectedElements = [],
+    activeTool = 'select',
+    zoom = 1,
+    drawingOptions = { strokeColor: '#111827', strokeWidth: 5 },
+    onElementUpdate,
+    onAlignSelection,
 }) => {
-    const panelRef = useRef<HTMLDivElement>(null);
-    const [activeTab, setActiveTab] = useState<RightPanelTab>('generate');
+    const [activeTab, setActiveTab] = useState<RightPanelTab>('chat');
     const [category, setCategory] = useState<AssetCategory>('character');
+    const [quickPrompt, setQuickPrompt] = useState('');
     const [editingId, setEditingId] = useState<string | null>(null);
-    const [editingName, setEditingName] = useState<string>('');
-    const [prompt, setPrompt] = useState<string>('');
+    const [editingName, setEditingName] = useState('');
     const editInputRef = useRef<HTMLInputElement>(null);
-    const promptInputRef = useRef<HTMLTextAreaElement>(null);
+    const desktopPanelWidth = 360;
 
-    // Resize state - 保存实际宽度，不受 minimized 影响
-    const [panelWidth, setPanelWidth] = useState(() => {
-        const saved = localStorage.getItem('rightPanelWidth');
-        return saved ? parseInt(saved, 10) : 380;
-    });
-    const [isResizing, setIsResizing] = useState(false);
-    const [resizeStartX, setResizeStartX] = useState(0);
-    const [resizeStartWidth, setResizeStartWidth] = useState(380);
-
-    // 保存宽度到 localStorage
-    useEffect(() => {
-        localStorage.setItem('rightPanelWidth', panelWidth.toString());
-    }, [panelWidth]);
-
-    // 报告当前实际显示宽度（minimized 时为 2px，否则为 panelWidth）
-    useEffect(() => {
-        if (onWidthChange) {
-            const actualWidth = isMinimized ? 2 : panelWidth;
-            onWidthChange(actualWidth);
-        }
-    }, [isMinimized, panelWidth, onWidthChange]);
+    const items = library[category];
+    const assetCount = useMemo(
+        () => library.character.length + library.scene.length + library.prop.length,
+        [library]
+    );
+    const singleSelection = selectedElements.length === 1 ? selectedElements[0] : null;
 
     useEffect(() => {
-        if (!isResizing) return;
-
-        const handlePointerMove = (e: PointerEvent) => {
-            const dx = resizeStartX - e.clientX;
-            const minW = 320;
-            const maxW = Math.min(600, window.innerWidth - 160);
-            const nextW = Math.min(maxW, Math.max(minW, resizeStartWidth + dx));
-            setPanelWidth(nextW);
-        };
-
-        const handlePointerUp = () => {
-            setIsResizing(false);
-        };
-
-        window.addEventListener('pointermove', handlePointerMove);
-        window.addEventListener('pointerup', handlePointerUp);
-        return () => {
-            window.removeEventListener('pointermove', handlePointerMove);
-            window.removeEventListener('pointerup', handlePointerUp);
-        };
-    }, [isResizing, resizeStartX, resizeStartWidth]);
+        if (!onWidthChange) return;
+        onWidthChange(embedded ? desktopPanelWidth : (isMinimized ? 0 : desktopPanelWidth));
+    }, [desktopPanelWidth, embedded, isMinimized, onWidthChange]);
 
     useEffect(() => {
         if (editingId && editInputRef.current) {
@@ -101,234 +182,323 @@ export const RightPanel: React.FC<RightPanelProps> = ({
         }
     }, [editingId]);
 
-    const handleResizePointerDown = (e: React.PointerEvent) => {
-        if (e.pointerType === 'mouse' && e.button !== 0) return;
-        setIsResizing(true);
-        setResizeStartX(e.clientX);
-        setResizeStartWidth(panelWidth);
-        e.stopPropagation();
-        e.preventDefault();
-    };
-
-    const handleDragStart = (e: React.DragEvent, item: AssetItem) => {
-        e.dataTransfer.setData('text/plain', JSON.stringify({ __makingAsset: true, item }));
-        e.dataTransfer.effectAllowed = 'copy';
-    };
-
-    const handleDoubleClick = (item: AssetItem) => {
-        setEditingId(item.id);
-        setEditingName(item.name || '');
-    };
-
-    const handleSaveEdit = (itemId: string) => {
-        if (editingId === itemId && editingName.trim()) {
-            onRename(category, itemId, editingName.trim());
+    useEffect(() => {
+        if (selectedElements.length > 0 && activeTab === 'chat') {
+            setActiveTab('inspect');
         }
+    }, [activeTab, selectedElements.length]);
+
+    const handleGenerate = () => {
+        const nextPrompt = quickPrompt.trim();
+        if (!nextPrompt) return;
+        onGenerate(nextPrompt);
+        setQuickPrompt('');
+    };
+
+    const handleDragStart = (event: React.DragEvent, item: AssetItem) => {
+        event.dataTransfer.setData('text/plain', JSON.stringify({ __makingAsset: true, item }));
+        event.dataTransfer.effectAllowed = 'copy';
+    };
+
+    const updateSingle = (updates: Partial<Element>) => {
+        if (!singleSelection || !onElementUpdate) return;
+        onElementUpdate(singleSelection.id, updates);
+    };
+
+    const saveEdit = (itemId: string) => {
+        if (editingId !== itemId) return;
+        const nextName = editingName.trim();
+        if (nextName) onRename(category, itemId, nextName);
         setEditingId(null);
         setEditingName('');
     };
 
-    const handleKeyDown = (e: React.KeyboardEvent, itemId: string) => {
-        if (e.key === 'Enter') {
-            e.preventDefault();
-            handleSaveEdit(itemId);
-        } else if (e.key === 'Escape') {
-            setEditingId(null);
-            setEditingName('');
-        }
-    };
+    const floatingStyle: React.CSSProperties = isCompact
+        ? {
+              left: '8px',
+              right: '8px',
+              top: 'auto',
+              bottom: `${compactBottomInset}px`,
+              height: 'min(76vh, 720px)',
+              transform: isMinimized ? 'translateY(calc(100% + 14px))' : 'translateY(0)',
+              opacity: isMinimized ? 0 : 1,
+              pointerEvents: isMinimized ? 'none' : 'auto',
+          }
+        : {
+              top: '0px',
+              right: '0px',
+              bottom: '0px',
+              width: `${desktopPanelWidth}px`,
+              transform: isMinimized ? 'translateX(calc(100% + 16px))' : 'translateX(0)',
+              opacity: isMinimized ? 0 : 1,
+              pointerEvents: isMinimized ? 'none' : 'auto',
+          };
 
-    const handleGenerate = () => {
-        if (prompt.trim()) {
-            onGenerate(prompt.trim());
-            setPrompt('');
-        }
-    };
+    const shellClass = embedded
+        ? 'flex h-full min-h-0 flex-col border-l border-neutral-200 bg-white'
+        : 'fixed z-[40] flex flex-col overflow-hidden border-l border-neutral-200 bg-white shadow-[-20px_0_40px_rgba(15,23,42,0.08)] transition-all duration-300 ease-out';
 
-    const items = library[category];
-
-    // 始终渲染面板和按钮，通过 CSS 控制显示
     return (
         <>
-            {/* 最小化按钮 - 只在收起时显示 */}
-            <button
-                onClick={onToggleMinimize}
-                style={{
-                    opacity: isMinimized ? 1 : 0,
-                    pointerEvents: isMinimized ? 'auto' : 'none',
-                    transition: 'opacity 0.2s ease-out',
-                }}
-                className="fixed top-4 right-4 z-20 w-10 h-10 rounded-lg bg-white border border-neutral-200 shadow-lg hover:shadow-xl flex items-center justify-center text-neutral-600 hover:text-neutral-900"
-                title="打开侧边栏"
-            >
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <rect x="3" y="3" width="18" height="18" rx="2" />
-                    <path d="M15 3v18" />
-                </svg>
-            </button>
+            {!embedded && !isCompact && (
+                <button
+                    type="button"
+                    onClick={onToggleMinimize}
+                    className={`fixed top-4 z-[46] inline-flex items-center gap-2 rounded-full border border-neutral-200 bg-white px-3 py-2 text-sm font-medium text-neutral-700 shadow-[0_12px_28px_rgba(15,23,42,0.08)] transition-all ${isMinimized ? 'right-4' : 'right-[18px]'}`}
+                >
+                    {isMinimized ? '打开对话栏' : '收起对话栏'}
+                </button>
+            )}
 
-            {/* 面板 - 始终存在，用 scaleX 实现传送门效果 */}
-        <div
-            ref={panelRef}
-            style={{
-                right: '16px',
-                width: `${panelWidth}px`, // 宽度始终由 panelWidth 决定
-                transform: isMinimized ? 'scaleX(0.005)' : 'scaleX(1)', // 从极小缩放到正常
-                transformOrigin: 'right center', // 从右边展开
-                opacity: isMinimized ? 0 : 1,
-                transition: 'transform 0.35s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s ease-out',
-                pointerEvents: isMinimized ? 'none' : 'auto',
-            }}
-            className="fixed top-4 bottom-4 z-[30] bg-white/95 backdrop-blur-xl border border-neutral-200/50 rounded-2xl shadow-2xl overflow-hidden flex flex-col"
-        >
-            {/* Resize handle (left edge) */}
-            <div
-                className="absolute left-0 top-0 bottom-0 w-1 cursor-ew-resize hover:bg-blue-400 transition-colors z-10"
-                onPointerDown={handleResizePointerDown}
-            />
-
-            {/* Header with tabs */}
-            <div className="flex-shrink-0 border-b border-neutral-200">
-                <div className="flex items-center justify-between px-3 py-2">
-                    <div className="flex items-center gap-2">
-                        <button
-                            onClick={() => setActiveTab('generate')}
-                            className={`px-3 py-1.5 text-sm rounded-lg transition-all ${
-                                activeTab === 'generate'
-                                    ? 'bg-neutral-900 text-white'
-                                    : 'text-neutral-600 hover:bg-neutral-100'
-                            }`}
-                        >
-                            生成
-                        </button>
-                        <button
-                            onClick={() => setActiveTab('inspiration')}
-                            className={`px-3 py-1.5 text-sm rounded-lg transition-all ${
-                                activeTab === 'inspiration'
-                                    ? 'bg-neutral-900 text-white'
-                                    : 'text-neutral-600 hover:bg-neutral-100'
-                            }`}
-                        >
-                            灵感库
-                        </button>
-                    </div>
-                    <button
-                        onClick={onToggleMinimize}
-                        className="shrink-0 p-2.5 rounded-xl border border-neutral-200 hover:bg-neutral-100 transition-colors"
-                        title="最小化"
-                        aria-label="最小化"
-                    >
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
-                            <rect x="3" y="3" width="18" height="18" rx="3" />
-                            <path d="M19 12H5" />
-                        </svg>
-                    </button>
-                </div>
-            </div>
-
-            {/* Content area */}
-            <div className="flex-1 overflow-hidden">
-                {/* Generate Tab */}
-                {activeTab === 'generate' && (
-                    <div className="h-full flex flex-col p-3 gap-3">
-                        <div className="flex-shrink-0">
-                            <label className="block text-xs font-medium text-neutral-700 mb-1">
-                                描述你想要生成的图片
-                            </label>
-                            <textarea
-                                ref={promptInputRef}
-                                value={prompt}
-                                onChange={(e) => setPrompt(e.target.value)}
-                                placeholder="例如：一只可爱的猫咪坐在窗台上..."
-                                className="w-full h-24 px-2.5 py-2 text-xs rounded-lg border border-neutral-200 bg-white focus:border-neutral-400 outline-none resize-none transition-colors"
-                            />
+            <aside className={shellClass} style={embedded ? undefined : floatingStyle}>
+                <div className="border-b border-neutral-100 px-5 pb-4 pt-5">
+                    <div className="flex items-start justify-between gap-3">
+                        <div>
+                            <div className="text-[22px] font-semibold tracking-[-0.03em] text-neutral-900">
+                                {activeTab === 'inspect' ? '检查器' : activeTab === 'library' ? '素材库' : '新对话'}
+                            </div>
+                            <div className="mt-1 text-sm text-neutral-500">
+                                {activeTab === 'inspect'
+                                    ? '位置、尺寸、布局与样式'
+                                    : activeTab === 'library'
+                                        ? '拖拽素材到画布'
+                                        : '生成、绑定、继续创作'}
+                            </div>
                         </div>
-                        <button
-                            onClick={handleGenerate}
-                            disabled={!prompt.trim()}
-                            className="w-full py-2.5 text-xs font-medium rounded-lg bg-neutral-900 text-white hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed transition-all shadow-sm hover:shadow"
-                        >
-                            生成图片
-                        </button>
-                        <div className="flex-1 flex items-center justify-center text-neutral-400 text-sm">
-                            <div className="text-center">
-                                <svg className="w-14 h-14 mx-auto mb-2 opacity-20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                                    <rect x="3" y="3" width="18" height="18" rx="2" />
-                                    <circle cx="8.5" cy="8.5" r="1.5" />
-                                    <path d="M21 15l-5-5L5 21" />
-                                </svg>
-                                <p className="text-xs">输入描述后点击生成</p>
+                        <div className="rounded-full bg-neutral-100 px-3 py-1.5 text-sm text-neutral-600">
+                            {Math.round(zoom * 100)}%
+                        </div>
+                    </div>
+
+                    <div className="mt-4 inline-flex rounded-full bg-neutral-100 p-1">
+                        {(['chat', 'inspect', 'library'] as RightPanelTab[]).map(tab => (
+                            <button
+                                key={tab}
+                                type="button"
+                                onClick={() => setActiveTab(tab)}
+                                className={`rounded-full px-3 py-1.5 text-sm transition-colors ${activeTab === tab ? 'bg-white text-neutral-900 shadow-sm' : 'text-neutral-500 hover:text-neutral-900'}`}
+                            >
+                                {tab === 'chat' ? '对话' : tab === 'inspect' ? '检查器' : '素材库'}
+                            </button>
+                        ))}
+                    </div>
+                </div>
+
+                {activeTab === 'chat' && (
+                    <div className="flex min-h-0 flex-1 flex-col">
+                        <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-6 py-8 text-center">
+                            <div className="text-[18px] font-semibold text-neutral-900">试试这些 Lovart Skills</div>
+                            <div className="mt-8 grid w-full max-w-[320px] grid-cols-2 gap-3">
+                                {skillOptions.map(item => (
+                                    <button
+                                        key={item}
+                                        type="button"
+                                        onClick={() => setQuickPrompt(item)}
+                                        className="rounded-full border border-neutral-200 bg-white px-4 py-3 text-sm text-neutral-700 transition-colors hover:border-neutral-300 hover:bg-neutral-50"
+                                    >
+                                        {item}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+
+                        <div className="border-t border-neutral-100 px-4 pb-4 pt-3">
+                            <div className="mb-3 rounded-[18px] border border-lime-200 bg-lime-50 px-4 py-3 text-sm text-lime-800">
+                                升级会员，免费使用 Nano Banana 2 365 天
+                            </div>
+                            <div className="rounded-[24px] border border-neutral-200 bg-neutral-50 p-4">
+                                <textarea
+                                    value={quickPrompt}
+                                    onChange={(event) => setQuickPrompt(event.target.value)}
+                                    placeholder='Start with an idea, or type "@" to mention'
+                                    className="h-24 w-full resize-none bg-transparent text-[15px] text-neutral-800 outline-none placeholder:text-neutral-400"
+                                    onKeyDown={(event) => {
+                                        if (event.key === 'Enter' && !event.shiftKey) {
+                                            event.preventDefault();
+                                            handleGenerate();
+                                        }
+                                    }}
+                                />
+                                <div className="mt-4 flex items-center justify-between gap-3">
+                                    <button type="button" className="inline-flex h-9 items-center justify-center rounded-full border border-blue-200 bg-blue-50 px-4 text-[15px] font-medium text-blue-700">
+                                        Agent
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={handleGenerate}
+                                        disabled={!quickPrompt.trim()}
+                                        className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-neutral-900 text-white transition-colors hover:bg-neutral-700 disabled:opacity-40"
+                                    >
+                                        ↑
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     </div>
                 )}
 
-                {/* Inspiration Tab */}
-                {activeTab === 'inspiration' && (
-                    <div className="h-full flex flex-col">
-                        <div className="flex-shrink-0 px-4 py-3 border-b border-neutral-200 flex items-center justify-between">
-                            <CategoryTabs value={category} onChange={setCategory} />
-                            <span className="text-xs text-neutral-500">{items.length} 项</span>
+                {activeTab === 'inspect' && (
+                    <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-5 pt-4">
+                        <div className="mb-5 rounded-[18px] border border-neutral-200 bg-neutral-50 px-4 py-3">
+                            <div className="text-sm font-medium text-neutral-900">
+                                {singleSelection
+                                    ? getElementLabel(singleSelection)
+                                    : selectedElements.length > 1
+                                        ? `选中 ${selectedElements.length} 个对象`
+                                        : 'sidebarPanel'}
+                            </div>
+                            <div className="mt-1 text-xs text-neutral-500">
+                                {singleSelection ? '单对象编辑模式' : '选择画布对象后，在这里编辑布局和属性'}
+                            </div>
                         </div>
-                        <div className="flex-1 overflow-y-auto p-3">
-                            {items.length === 0 ? (
-                                <div className="h-full flex items-center justify-center text-neutral-400 text-sm">
-                                    <div className="text-center">
-                                        <svg className="w-16 h-16 mx-auto mb-3 opacity-20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
-                                            <rect x="3" y="7" width="7" height="10" rx="1" />
-                                            <rect x="14" y="4" width="7" height="16" rx="1" />
-                                        </svg>
-                                        <p>暂无{category === 'character' ? '角色' : category === 'scene' ? '场景' : '道具'}</p>
-                                        <p className="text-xs mt-1">选中图片后点击"加入灵感库"</p>
-                                    </div>
+
+                        <section className="border-t border-neutral-100 py-4">
+                            <div className="mb-3 text-sm font-medium text-neutral-900">Context</div>
+                            <div className="rounded-[16px] border border-neutral-200 bg-neutral-50 px-3 py-3 text-sm text-neutral-600">
+                                当前工具：<span className="text-neutral-900">{activeTool}</span>
+                                <span className="mx-2 text-neutral-300">•</span>
+                                画笔：<span className="text-neutral-900">{drawingOptions.strokeWidth}px</span>
+                            </div>
+                        </section>
+
+                        <section className="border-t border-neutral-100 py-4">
+                            <div className="mb-3 text-sm font-medium text-neutral-900">Alignment</div>
+                            <AlignButtons disabled={selectedElements.length < 2} onAlign={onAlignSelection} />
+                        </section>
+
+                        <section className="border-t border-neutral-100 py-4">
+                            <div className="mb-3 text-sm font-medium text-neutral-900">Position</div>
+                            {singleSelection ? (
+                                <div className="grid grid-cols-2 gap-3">
+                                    <NumberField label="X" value={singleSelection.x} onCommit={(value) => updateSingle({ x: value })} />
+                                    <NumberField label="Y" value={singleSelection.y} onCommit={(value) => updateSingle({ y: value })} />
+                                    <NumberField label="W" value={hasSize(singleSelection) ? singleSelection.width : 0} disabled={!hasSize(singleSelection)} onCommit={(value) => updateSingle({ width: Math.max(1, value) } as Partial<Element>)} />
+                                    <NumberField label="H" value={hasSize(singleSelection) ? singleSelection.height : 0} disabled={!hasSize(singleSelection)} onCommit={(value) => updateSingle({ height: Math.max(1, value) } as Partial<Element>)} />
                                 </div>
                             ) : (
-                                <div className="columns-2 gap-3">
+                                <div className="rounded-[16px] border border-dashed border-neutral-200 bg-neutral-50 px-3 py-4 text-sm text-neutral-500">
+                                    选择单个对象后可编辑位置和尺寸，多选时可使用上方对齐工具。
+                                </div>
+                            )}
+                        </section>
+
+                        <section className="border-t border-neutral-100 py-4">
+                            <div className="mb-3 text-sm font-medium text-neutral-900">Appearance</div>
+                            <div className="rounded-[16px] border border-neutral-200 bg-neutral-50 p-3">
+                                {singleSelection?.type === 'shape' && (
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <label className="block">
+                                            <div className="mb-1 text-[11px] uppercase tracking-[0.14em] text-neutral-400">Fill</div>
+                                            <input type="color" value={singleSelection.fillColor} onChange={(event) => updateSingle({ fillColor: event.target.value })} className="h-11 w-full cursor-pointer rounded-[12px] border border-neutral-200 bg-white p-1" />
+                                        </label>
+                                        <label className="block">
+                                            <div className="mb-1 text-[11px] uppercase tracking-[0.14em] text-neutral-400">Stroke</div>
+                                            <input type="color" value={singleSelection.strokeColor} onChange={(event) => updateSingle({ strokeColor: event.target.value })} className="h-11 w-full cursor-pointer rounded-[12px] border border-neutral-200 bg-white p-1" />
+                                        </label>
+                                    </div>
+                                )}
+
+                                {singleSelection?.type === 'text' && (
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <label className="block">
+                                            <div className="mb-1 text-[11px] uppercase tracking-[0.14em] text-neutral-400">Text Color</div>
+                                            <input type="color" value={singleSelection.fontColor} onChange={(event) => updateSingle({ fontColor: event.target.value })} className="h-11 w-full cursor-pointer rounded-[12px] border border-neutral-200 bg-white p-1" />
+                                        </label>
+                                        <NumberField label="Font Size" value={singleSelection.fontSize} onCommit={(value) => updateSingle({ fontSize: Math.max(8, value) })} />
+                                    </div>
+                                )}
+
+                                {singleSelection && hasStroke(singleSelection) && singleSelection.type !== 'shape' && singleSelection.type !== 'text' && (
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <label className="block">
+                                            <div className="mb-1 text-[11px] uppercase tracking-[0.14em] text-neutral-400">Stroke</div>
+                                            <input type="color" value={singleSelection.strokeColor} onChange={(event) => updateSingle({ strokeColor: event.target.value })} className="h-11 w-full cursor-pointer rounded-[12px] border border-neutral-200 bg-white p-1" />
+                                        </label>
+                                        <NumberField label="Weight" value={singleSelection.strokeWidth} onCommit={(value) => updateSingle({ strokeWidth: Math.max(1, value) })} />
+                                    </div>
+                                )}
+
+                                {!singleSelection && (
+                                    <div className="text-sm text-neutral-500">选择一个对象后，这里会显示可编辑的样式属性。</div>
+                                )}
+                            </div>
+                        </section>
+                    </div>
+                )}
+
+                {activeTab === 'library' && (
+                    <div className="flex min-h-0 flex-1 flex-col">
+                        <div className="border-b border-neutral-100 px-4 py-3">
+                            <div className="inline-flex rounded-full bg-neutral-100 p-1">
+                                {categoryOptions.map(option => (
+                                    <button
+                                        key={option.value}
+                                        type="button"
+                                        onClick={() => setCategory(option.value)}
+                                        className={`rounded-full px-3 py-1.5 text-sm transition-colors ${category === option.value ? 'bg-white text-neutral-900 shadow-sm' : 'text-neutral-500'}`}
+                                    >
+                                        {option.label}
+                                    </button>
+                                ))}
+                            </div>
+                            <div className="mt-2 text-xs text-neutral-500">已收集 {assetCount} 个素材，可直接拖入画布</div>
+                        </div>
+
+                        <div className="min-h-0 flex-1 overflow-y-auto p-3">
+                            {items.length === 0 ? (
+                                <div className="flex h-full items-center justify-center text-sm text-neutral-500">暂时还没有素材</div>
+                            ) : (
+                                <div className="grid grid-cols-2 gap-3">
                                     {items.map(item => (
                                         <div
                                             key={item.id}
-                                            className="group inline-block w-full mb-3 break-inside-avoid rounded-lg border border-neutral-200 overflow-hidden hover:shadow-md cursor-grab active:cursor-grabbing relative bg-neutral-50 transition-all"
+                                            className="group relative overflow-hidden rounded-[18px] border border-neutral-200 bg-neutral-50 shadow-sm"
                                             draggable
-                                            onDragStart={(e) => handleDragStart(e, item)}
+                                            onDragStart={(event) => handleDragStart(event, item)}
                                         >
-                                            <img src={item.dataUrl} alt={item.name || ''} className="w-full h-auto object-contain bg-neutral-50" />
-
-                                            {/* Hover overlay */}
+                                            <img src={item.dataUrl} alt={item.name || ''} className="aspect-square w-full object-cover" />
                                             {editingId === item.id ? (
-                                                <div className="absolute inset-x-2 bottom-2 flex items-center gap-2">
+                                                <div className="absolute inset-x-2 bottom-2">
                                                     <input
                                                         ref={editInputRef}
-                                                        type="text"
                                                         value={editingName}
-                                                        onChange={(e) => setEditingName(e.target.value)}
-                                                        onBlur={() => handleSaveEdit(item.id)}
-                                                        onKeyDown={(e) => handleKeyDown(e, item.id)}
-                                                        className="text-xs px-2 py-1 border border-blue-400 rounded-lg outline-none bg-white/95 backdrop-blur min-w-0 flex-1 shadow-lg"
-                                                        placeholder="输入名称"
-                                                        aria-label="素材名称"
+                                                        onChange={(event) => setEditingName(event.target.value)}
+                                                        onBlur={() => saveEdit(item.id)}
+                                                        onKeyDown={(event) => {
+                                                            if (event.key === 'Enter') saveEdit(item.id);
+                                                            if (event.key === 'Escape') {
+                                                                setEditingId(null);
+                                                                setEditingName('');
+                                                            }
+                                                        }}
+                                                        className="w-full rounded-xl border border-blue-300 bg-white px-2 py-1 text-xs text-neutral-900 outline-none"
                                                     />
                                                 </div>
                                             ) : (
-                                                <div className="pointer-events-none absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                    <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/30 to-transparent" />
-                                                    <div className="absolute bottom-2 left-2 right-2 text-white flex items-end justify-between gap-2">
-                                                        <div className="min-w-0 pointer-events-auto cursor-text" onDoubleClick={() => handleDoubleClick(item)}>
-                                                            <div className="text-xs font-medium truncate">{item.name || '未命名'}</div>
-                                                            <div className="text-[10px] opacity-80">{item.width}×{item.height}</div>
-                                                        </div>
+                                                <div className="absolute inset-0 opacity-0 transition-opacity group-hover:opacity-100">
+                                                    <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
+                                                    <div className="absolute bottom-2 left-2 right-2 flex items-end justify-between gap-2 text-white">
                                                         <button
-                                                            className="pointer-events-auto p-1 rounded-lg bg-white/10 hover:bg-white/20 backdrop-blur transition-colors"
-                                                            title="删除"
-                                                            onClick={(e) => {
-                                                                e.stopPropagation();
-                                                                onRemove(category, item.id);
+                                                            type="button"
+                                                            onDoubleClick={() => {
+                                                                setEditingId(item.id);
+                                                                setEditingName(item.name || '');
                                                             }}
+                                                            className="min-w-0 text-left"
                                                         >
-                                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-white">
-                                                                <polyline points="3 6 5 6 21 6" />
-                                                                <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
-                                                                <path d="M10 11v6" />
-                                                                <path d="M14 11v6" />
+                                                            <div className="truncate text-sm font-medium">{item.name || '未命名素材'}</div>
+                                                            <div className="text-[11px] text-white/70">{item.width} × {item.height}</div>
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => onRemove(category, item.id)}
+                                                            className="rounded-full bg-white/20 p-2 text-white transition-colors hover:bg-white/30"
+                                                            title="删除素材"
+                                                        >
+                                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                                <path d="M3 6h18" />
+                                                                <path d="M8 6V4h8v2" />
+                                                                <path d="m19 6-1 14H6L5 6" />
                                                             </svg>
                                                         </button>
                                                     </div>
@@ -340,10 +510,8 @@ export const RightPanel: React.FC<RightPanelProps> = ({
                             )}
                         </div>
                     </div>
-                 )}
-             </div>
-         </div>
+                )}
+            </aside>
         </>
     );
 };
-

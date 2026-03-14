@@ -1,122 +1,80 @@
 <div align="center">
 
-# MakingLovart | AI Creative Whiteboard
+# MakingLovart | Creative Whiteboard
 
-Modern infinite canvas + AI agents + node workflow.
+A modern AI-powered infinite canvas designed for creative professionals.
 
 [![Built with Nano Banana](https://img.shields.io/badge/Built%20with-Nano%20Banana-yellow?style=flat-square)](https://github.com/JimLiu/nanoBanana)
 [![Inspired by Lovart](https://img.shields.io/badge/UI%20Inspired%20by-Lovart-ff69b4?style=flat-square)](https://lovart.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](LICENSE)
 
+**[🇨🇳 中文文档](DOCKER_GUIDE.md#-中文文档)** · **[🇬🇧 English](#project-overview)**
+
 </div>
 
 ---
 
-## 项目简介
+## Project overview
 
-`MakingLovart` 是一个面向创作场景的 AI 白板应用：在无限画布上完成绘制、图层管理、提示词编辑、图像/视频生成，并支持 ComfyUI 风格的节点工作流。
+MakingLovart is a web-based infinite canvas inspired by Lovart. It combines flexible drawing tools, a layered workspace and an organized inspiration library with AI-driven image/video generation (via Google Gemini) to accelerate creative workflows.
 
-当前包含两种工作模式：
-- `自由白板 (Whiteboard)`：常规绘制、图层编辑、Prompt 输入与 AI 生成
-- `节点工作流 (Node Workflow)`：节点连接、图像拖拽输入、图生图/图生视频链路
+This repo is a learning project — contributions and feedback are welcome.
 
 ![MakingLovart preview](show.jpg)
 
-## 最近更新 (2026)
+## Highlights
 
-- `@ 元素引用`：在 Prompt 富文本中输入 `@` 可引用画布元素作为 AI 参考
-- `BANANA Agent`：支持图片内容识别拆层、高清放大、去背景等图像处理
-- `Prompt Enhancer`：支持 `smart / style / precise / translate` 四种提示词增强模式
-- `Character Lock`：从选中图层锁定角色一致性，跨轮次生成保持设定稳定
-- `ComfyUI 风格节点画布`：支持节点拖拽、端口连线、画布平移缩放、Queue Prompt 运行
-- `图像输入增强`：支持画板图片拖入 Chat/工作流，也支持本地上传作为参考图
-- `自适应布局优化`：节点模式下自动隐藏遮挡面板，主交互区域更干净
+- Minimalist Lovart-inspired UI with collapsible panels
+- Organized inspiration library (Characters, Scenes, Props)
+- Gemini-powered AI: text→image, image editing, inpainting, experimental video
+- Layer system: lock, hide, rename, reorder
+- Multiple boards with local auto-save
 
-## 核心能力
+## Quick start
 
-- 无限画布：路径、形状、文本、图片、视频等元素编辑
-- 图层系统：重命名、显示/隐藏、锁定、排序、分组
-- AI 生成：
-  - 文生图
-  - 图像编辑 / 局部重绘 (inpainting)
-  - 图生视频
-- Agent 协同：
-  - Prompt 增强
-  - 角色一致性锁定
-  - BANANA 图像处理 Agent
-- 节点工作流：
-  - Prompt / Load Image / Enhancer / Generator / Preview 节点
-  - 节点输入输出连线与基础运行编排
+Prerequisites: Node.js v16+ (recommended).
 
-## 目录说明
-
-- `App.tsx`: 主应用状态与工作流编排
-- `components/NodeWorkflowPanel.tsx`: ComfyUI 风格节点编辑器
-- `components/RichPromptEditor.tsx`: Prompt 富文本编辑器（含 `@引用`）
-- `services/geminiService.ts`: Gemini 图像/视频/提示词增强服务
-- `services/bananaService.ts`: BANANA 拆层与图像 Agent 服务
-- `types.ts`: 核心类型定义
-- `n8n-temp/`: 本地 n8n `editor-ui` 参考目录（用于架构对齐与复刻研究）
-
-## 快速启动
-
-前置环境：`Node.js 18+`（建议）
-
-1) 安装依赖
+1) Clone and install
 
 ```bash
+git clone https://github.com/your-username/MakingLovart.git
+cd MakingLovart
 npm install
 ```
 
-2) 配置环境变量
+2) (Optional) Configure Gemini API key
 
-复制 `env.example` 为 `.env.local`，至少配置：
+Add your key to `.env.local` (copy from `.env.example`) or set `VITE_GEMINI_API_KEY` in your environment.
 
-```bash
-VITE_GEMINI_API_KEY=your_gemini_api_key_here
-```
-
-3) 启动开发环境
+3) Run development server
 
 ```bash
 npm run dev
 ```
 
-4) 构建生产包
-
-```bash
-npm run build
-```
+Open http://localhost:5173
 
 ## Docker
 
-完整双语部署文档见 `DOCKER_GUIDE.md`（含 Nginx/Caddy/Traefik 示例与常见问题排查）。
+A full bilingual Docker guide is available in `DOCKER_GUIDE.md` (includes Chinese and English sections, Nginx/Caddy/Traefik examples and common troubleshooting).
 
-## 技术栈
+## Tech stack
 
-- React 19 + TypeScript
+- React + TypeScript
 - Vite
 - Tailwind CSS
-- Tiptap / ProseMirror（Prompt 富文本 + @引用）
-- Google Gemini (`@google/genai`)
-- localStorage（本地持久化）
+- Google Gemini (AI)
+- localStorage for persistence
 
-## 路线图
+## Contributing
 
-- 对齐 `n8n editor-ui` 的节点交互细节（连接规则、群组、MiniMap、选择框）
-- 抽象画布与节点数据模型，减少模式切换成本
-- 增强工作流执行可视化（运行状态、错误定位、回放）
+Fork, create a branch, commit, push and open a PR. See `CONTRIBUTING.md` for details.
 
-## 贡献
+## Credits
 
-欢迎提交 Issue / PR。贡献指南见 `CONTRIBUTING.md`。
-
-## 致谢
-
-- BananaPod: https://github.com/ZHO-ZHO-ZHO/BananaPod
-- Nano Banana: https://github.com/JimLiu/nanoBanana
-- Lovart: https://lovart.com/
-- n8n editor-ui: https://github.com/n8n-io/n8n/tree/master/packages/editor-ui
+- BananaPod — base project: https://github.com/ZHO-ZHO-ZHO/BananaPod
+- Nano Banana — canvas engine: https://github.com/JimLiu/nanoBanana
+- Lovart — UI inspiration: https://lovart.com/
 
 ---
 

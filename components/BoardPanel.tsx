@@ -12,7 +12,7 @@ interface BoardPanelProps {
     onRenameBoard: (id: string, name: string) => void;
     onDuplicateBoard: (id: string) => void;
     onDeleteBoard: (id: string) => void;
-    generateBoardThumbnail: (elements: Board['elements']) => string;
+    boardThumbnails: Record<string, string>;
 }
 
 const BoardItem: React.FC<{
@@ -125,16 +125,16 @@ const BoardItem: React.FC<{
 
 export const BoardPanel: React.FC<BoardPanelProps> = ({ 
     isOpen, onClose, boards, activeBoardId, onSwitchBoard, onAddBoard, 
-    onRenameBoard, onDuplicateBoard, onDeleteBoard, generateBoardThumbnail 
+    onRenameBoard, onDuplicateBoard, onDeleteBoard, boardThumbnails 
 }) => {
     if (!isOpen) return null;
 
     return (
          <div 
-            className="absolute top-4 left-4 z-20 flex flex-col w-64 h-[calc(100vh-2rem)] border border-neutral-200 rounded-2xl shadow-xl bg-white text-neutral-900 overflow-hidden"
+            className="absolute top-4 left-4 z-20 flex h-[calc(100vh-2rem)] w-64 flex-col overflow-hidden rounded-2xl border border-neutral-200/35 bg-white/92 text-neutral-900 shadow-xl backdrop-blur-xl"
             style={{ backgroundColor: 'var(--ui-bg-color)' }}
         >
-            <div className="flex-shrink-0 flex justify-between items-center p-3 border-b border-neutral-200">
+            <div className="flex shrink-0 items-center justify-between border-b border-neutral-200/50 p-3">
                 <h3 className="text-base font-semibold">Boards</h3>
                 <div className="flex items-center space-x-1">
                     <button onClick={onAddBoard} className="text-neutral-700 hover:text-neutral-900 p-1.5 rounded-full hover:bg-neutral-100" title="New Board">
@@ -151,7 +151,7 @@ export const BoardPanel: React.FC<BoardPanelProps> = ({
                         key={board.id}
                         board={board}
                         isActive={board.id === activeBoardId}
-                        thumbnail={generateBoardThumbnail(board.elements)}
+                        thumbnail={boardThumbnails[board.id] || ''}
                         onClick={() => onSwitchBoard(board.id)}
                         onRename={(name) => onRenameBoard(board.id, name)}
                         onDuplicate={() => onDuplicateBoard(board.id)}

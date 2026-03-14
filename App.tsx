@@ -1,4 +1,4 @@
-
+﻿
 
 
 
@@ -9,16 +9,12 @@ import { Toolbar } from './components/Toolbar';
 import { PromptBar } from './components/PromptBar';
 import { Loader } from './components/Loader';
 import { CanvasSettings } from './components/CanvasSettings';
-import { LayerPanel } from './components/LayerPanel';
 import { LayerPanelMinimizable } from './components/LayerPanelMinimizable';
-import { LayerToggleButton } from './components/LayerToggleButton';
 import { BoardPanel } from './components/BoardPanel';
-import type { Tool, Point, Element, ImageElement, PathElement, ShapeElement, TextElement, ArrowElement, UserEffect, LineElement, WheelAction, GroupElement, Board, VideoElement, AssetLibrary, AssetCategory, AssetItem, UserApiKey, ModelPreference, AIProvider, PromptEnhanceMode, CharacterLockProfile, WorkspaceMode, ChatAttachment } from './types';
-import { AssetLibraryPanel } from './components/AssetLibraryPanel';
-import { InspirationPanel } from './components/InspirationPanel';
+import { ProjectMenu } from './components/ProjectMenu';
+import type { Tool, Point, Element, ImageElement, PathElement, ShapeElement, TextElement, ArrowElement, UserEffect, LineElement, WheelAction, GroupElement, Board, VideoElement, AssetLibrary, AssetCategory, AssetItem, UserApiKey, ModelPreference, AIProvider, PromptEnhanceMode, CharacterLockProfile, ChatAttachment } from './types';
 import { RightPanel } from './components/RightPanel';
 import { AssetAddModal } from './components/AssetAddModal';
-import { NodeWorkflowPanel } from './components/NodeWorkflowPanel';
 import { loadAssetLibrary, addAsset, removeAsset, renameAsset } from './utils/assetStorage';
 import { editImage, generateImageFromText, generateVideo, setGeminiRuntimeConfig, enhancePromptWithGemini } from './services/geminiService';
 import { splitImageByBanana, runBananaImageAgent, setBananaRuntimeConfig } from './services/bananaService';
@@ -390,26 +386,33 @@ const App: React.FC = () => {
     const [selectionBox, setSelectionBox] = useState<Rect | null>(null);
     const [prompt, setPrompt] = useState('');
     const [chatAttachments, setChatAttachments] = useState<ChatAttachment[]>([]);
-    const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>('whiteboard');
-    // @ 引用元素 id 列表（由 PromptBar 在用户点击生成前同步过来）
+    // Mentioned canvas elements synced from the prompt editor.
     const [mentionedElementIds, setMentionedElementIds] = useState<string[]>([]);
     const [isEnhancingPrompt, setIsEnhancingPrompt] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [isSettingsPanelOpen, setIsSettingsPanelOpen] = useState(false);
-    const [isLayerPanelOpen, setIsLayerPanelOpen] = useState(false);
     const [isBoardPanelOpen, setIsBoardPanelOpen] = useState(false);
     const [isLayerMinimized, setIsLayerMinimized] = useState(() => {
         const saved = localStorage.getItem('layerPanelMinimized');
+        if (saved === null) return window.innerWidth <= 1024;
         return saved === 'true';
     });
     const [isInspirationMinimized, setIsInspirationMinimized] = useState(() => {
         const saved = localStorage.getItem('inspirationPanelMinimized');
+        if (saved === null) return true;
         return saved === 'true';
     });
-    const [toolbarLeft, setToolbarLeft] = useState(68); // 工具栏的 left 位置
-    const [rightPanelWidth, setRightPanelWidth] = useState(2); // 右侧面板实际宽度（用于 PromptBar 同步）
+    const [toolbarLeft, setToolbarLeft] = useState(68); // 宸ュ叿鏍忕殑 left 浣嶇疆
+    const [rightPanelWidth, setRightPanelWidth] = useState(472);
     const [wheelAction, setWheelAction] = useState<WheelAction>('zoom');
+    const promptDockRef = useRef<HTMLDivElement | null>(null);
+    const [promptDockHeight, setPromptDockHeight] = useState(168);
+    const [viewportSize, setViewportSize] = useState(() => ({
+        width: window.innerWidth,
+        height: window.innerHeight,
+    }));
+    const [isCompactLayout, setIsCompactLayout] = useState(() => window.innerWidth <= 1024);
     const [croppingState, setCroppingState] = useState<{ elementId: string; originalElement: ImageElement; cropBox: Rect } | null>(null);
     const [alignmentGuides, setAlignmentGuides] = useState<Guide[]>([]);
     const [contextMenu, setContextMenu] = useState<{ x: number; y: number; elementId: string | null } | null>(null);
@@ -425,6 +428,41 @@ const App: React.FC = () => {
     useEffect(() => {
         localStorage.setItem('inspirationPanelMinimized', isInspirationMinimized.toString());
     }, [isInspirationMinimized]);
+
+    useEffect(() => {
+        const handleResize = () => {
+            setViewportSize({ width: window.innerWidth, height: window.innerHeight });
+            setIsCompactLayout(window.innerWidth <= 1024);
+        };
+        handleResize();
+        window.addEventListener('resize', handleResize, { passive: true });
+        return () => window.removeEventListener('resize', handleResize);
+    }, []);
+
+    const wasCompactRef = useRef(isCompactLayout);
+    useEffect(() => {
+        if (isCompactLayout && !wasCompactRef.current) {
+            setIsLayerMinimized(true);
+            setIsInspirationMinimized(true);
+        }
+        wasCompactRef.current = isCompactLayout;
+    }, [isCompactLayout]);
+
+    useEffect(() => {
+        if (!promptDockRef.current || typeof ResizeObserver === 'undefined') return;
+        const node = promptDockRef.current;
+        const observer = new ResizeObserver((entries) => {
+            const entry = entries[0];
+            if (!entry) return;
+            const nextHeight = Math.ceil(entry.contentRect.height);
+            if (Number.isFinite(nextHeight) && nextHeight > 0) {
+                setPromptDockHeight(nextHeight);
+            }
+        });
+        observer.observe(node);
+        return () => observer.disconnect();
+    }, [croppingState]);
+
     const [editingElement, setEditingElement] = useState<{ id: string; text: string; } | null>(null);
     const [lassoPath, setLassoPath] = useState<Point[] | null>(null);
 
@@ -601,10 +639,10 @@ const App: React.FC = () => {
 
     const handleLockCharacterFromSelection = useCallback((name?: string) => {
         if (!selectedSingleImage) {
-            setError('请选择一张图片后再锁定角色。');
+            setError('Please select one image before locking a character.');
             return;
         }
-        const lockName = name?.trim() || selectedSingleImage.name || `角色 ${characterLocks.length + 1}`;
+        const lockName = name?.trim() || selectedSingleImage.name || `Character ${characterLocks.length + 1}`;
         const descriptor = [
             `Character lock: ${lockName}.`,
             'Keep face, hairstyle, costume, body shape, and age consistent across all shots.',
@@ -654,15 +692,6 @@ const App: React.FC = () => {
         });
     }, []);
 
-    const handleAddAttachmentFromCanvas = useCallback((payload: { id: string; name?: string; href: string; mimeType: string }) => {
-        addChatAttachment({
-            name: payload.name || `Canvas ${payload.id.slice(-4)}`,
-            href: payload.href,
-            mimeType: payload.mimeType,
-            source: 'canvas',
-        });
-    }, [addChatAttachment]);
-
     const handleAddAttachmentFiles = useCallback(async (files: FileList | File[]) => {
         const list = Array.from(files).filter(file => file.type.startsWith('image/'));
         if (list.length === 0) return;
@@ -677,7 +706,7 @@ const App: React.FC = () => {
                 });
             });
         } catch (error) {
-            const message = error instanceof Error ? error.message : '附件上传失败。';
+            const message = error instanceof Error ? error.message : 'Attachment upload failed.';
             setError(message);
         }
     }, [addChatAttachment]);
@@ -1589,7 +1618,7 @@ const App: React.FC = () => {
         try {
             setIsLoading(true);
             setError(null);
-            setProgressMessage('BANANA 正在识别图片并拆分图层...');
+            setProgressMessage('BANANA is analyzing the image and splitting layers...');
 
             const layers = await splitImageByBanana({
                 href: element.href,
@@ -1658,13 +1687,13 @@ const App: React.FC = () => {
 
             if (insertedIds.length > 0) {
                 setSelectedElementIds(insertedIds);
-                setProgressMessage(`BANANA 已拆分 ${insertedIds.length} 个图层`);
+                setProgressMessage(`BANANA split ${insertedIds.length} layers.`);
             } else {
                 setProgressMessage('');
             }
         } catch (err) {
             const error = err as Error;
-            setError(`BANANA 拆层失败：${error.message}`);
+            setError(`BANANA layer split failed: ${error.message}`);
         } finally {
             setIsLoading(false);
             setTimeout(() => setProgressMessage(''), 1200);
@@ -1675,17 +1704,17 @@ const App: React.FC = () => {
         try {
             setIsLoading(true);
             setError(null);
-            setProgressMessage('BANANA Agent 正在进行高清放大...');
+            setProgressMessage('BANANA Agent 姝ｅ湪杩涜楂樻竻鏀惧ぇ...');
             const result = await runBananaImageAgent(
                 { href: element.href, mimeType: element.mimeType },
                 'upscale',
                 { scale: 2 }
             );
             await insertImageAgentResult(element, result.dataUrl, 'Upscaled x2', 2, result.mimeType);
-            setProgressMessage('高清放大完成');
+            setProgressMessage('楂樻竻鏀惧ぇ瀹屾垚');
         } catch (err) {
             const error = err as Error;
-            setError(`BANANA 高清放大失败：${error.message}`);
+            setError(`BANANA 楂樻竻鏀惧ぇ澶辫触锛?{error.message}`);
         } finally {
             setIsLoading(false);
             setTimeout(() => setProgressMessage(''), 1200);
@@ -1696,16 +1725,16 @@ const App: React.FC = () => {
         try {
             setIsLoading(true);
             setError(null);
-            setProgressMessage('BANANA Agent 正在去除背景...');
+            setProgressMessage('BANANA Agent 姝ｅ湪鍘婚櫎鑳屾櫙...');
             const result = await runBananaImageAgent(
                 { href: element.href, mimeType: element.mimeType },
                 'remove-background'
             );
             await insertImageAgentResult(element, result.dataUrl, 'Background Removed', undefined, result.mimeType);
-            setProgressMessage('去背景完成');
+            setProgressMessage('Background removal completed.');
         } catch (err) {
             const error = err as Error;
-            setError(`BANANA 去背景失败：${error.message}`);
+            setError(`BANANA background removal failed: ${error.message}`);
         } finally {
             setIsLoading(false);
             setTimeout(() => setProgressMessage(''), 1200);
@@ -1902,7 +1931,7 @@ const App: React.FC = () => {
         try {
             const isEditing = selectedElementIds.length > 0;
 
-            // Collect @mention reference images (只取图片类元素，排除已在 selection 中的)
+            // Collect @mention reference images (鍙彇鍥剧墖绫诲厓绱狅紝鎺掗櫎宸插湪 selection 涓殑)
             const mentionedImageElements = mentionedElementIds
                 .map(id => elements.find(el => el.id === id))
                 .filter((el): el is ImageElement => !!el && el.type === 'image' && !selectedElementIds.includes(el.id));
@@ -1997,7 +2026,7 @@ const App: React.FC = () => {
                 }
 
             } else if (mentionedImageElements.length > 0) {
-                // No canvas selection, but user @mentioned image elements → use editImage as reference-guided generation
+                // No canvas selection, but user @mentioned image elements 鈫?use editImage as reference-guided generation
                 setProgressMessage('Generating with reference images...');
                 const mentionRefs = mentionedImageElements.map(el => ({ href: el.href, mimeType: el.mimeType }));
                 const result = await editImage([...mentionRefs, ...attachmentReferenceImages, ...characterReferenceImages], effectivePrompt);
@@ -2074,34 +2103,6 @@ const App: React.FC = () => {
         }
     };
 
-    const handleRunNodeWorkflow = async (opts: { autoEnhance: boolean; enhanceMode: PromptEnhanceMode; stylePreset?: string }) => {
-        let finalPrompt = prompt;
-        if (opts.autoEnhance && prompt.trim()) {
-            const enhanced = await handleEnhancePrompt({
-                prompt,
-                mode: opts.enhanceMode,
-                stylePreset: opts.stylePreset,
-            });
-            if (enhanced.enhancedPrompt?.trim()) {
-                finalPrompt = enhanced.enhancedPrompt.trim();
-                setPrompt(finalPrompt);
-            }
-        }
-        await handleGenerate(finalPrompt);
-    };
-
-    const handleCanvasImageDragStart = useCallback((image: ImageElement, e: React.DragEvent<SVGGElement>) => {
-        const payload = {
-            id: image.id,
-            name: image.name,
-            href: image.href,
-            mimeType: image.mimeType,
-        };
-        e.dataTransfer.setData('application/x-canvas-image', JSON.stringify(payload));
-        e.dataTransfer.setData('text/plain', image.name || image.id);
-        e.dataTransfer.effectAllowed = 'copy';
-    }, []);
-    
     const handleDragOver = useCallback((e: React.DragEvent) => { e.preventDefault(); }, []);
     const handleDrop = useCallback((e: React.DragEvent) => { 
         e.preventDefault(); 
@@ -2351,6 +2352,10 @@ const App: React.FC = () => {
 
     const isSelectionActive = selectedElementIds.length > 0;
     const singleSelectedElement = selectedElementIds.length === 1 ? elements.find(el => el.id === selectedElementIds[0]) : null;
+    const selectedCanvasElements = useMemo(
+        () => elements.filter(el => selectedElementIds.includes(el.id)),
+        [elements, selectedElementIds]
+    );
 
     let cursor = 'default';
     if (croppingState) cursor = 'default';
@@ -2390,6 +2395,13 @@ const App: React.FC = () => {
     const handleRenameBoard = (boardId: string, name: string) => {
         setBoards(prev => prev.map(b => b.id === boardId ? { ...b, name } : b));
     };
+
+    const handleDeleteCurrentBoard = useCallback(() => {
+        if (boards.length <= 1) return;
+        if (window.confirm('鍒犻櫎褰撳墠椤圭洰鍚庝笉鍙仮澶嶏紝纭畾缁х画鍚楋紵')) {
+            handleDeleteBoard(activeBoardId);
+        }
+    }, [activeBoardId, boards.length]);
 
     const handleCanvasBackgroundColorChange = (color: string) => {
         updateActiveBoard(b => ({ ...b, canvasBackgroundColor: color }));
@@ -2441,8 +2453,167 @@ const App: React.FC = () => {
         return `data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(fullSvg)))}`;
     }, []);
 
+    const boardThumbnails = useMemo(() => {
+        if (!isBoardPanelOpen) return {} as Record<string, string>;
+        const next: Record<string, string> = {};
+        boards.forEach(board => {
+            next[board.id] = generateBoardThumbnail(board.elements, board.canvasBackgroundColor);
+        });
+        return next;
+    }, [boards, isBoardPanelOpen, generateBoardThumbnail]);
+
+    const viewportWorldRect = useMemo(() => {
+        const overscan = 320 / Math.max(zoom, 0.01);
+        const worldLeft = -panOffset.x / zoom - overscan;
+        const worldTop = -panOffset.y / zoom - overscan;
+        const worldWidth = viewportSize.width / zoom + overscan * 2;
+        const worldHeight = viewportSize.height / zoom + overscan * 2;
+        return { x: worldLeft, y: worldTop, width: worldWidth, height: worldHeight };
+    }, [panOffset.x, panOffset.y, zoom, viewportSize.height, viewportSize.width]);
+
+    const renderElements = useMemo(() => {
+        const viewportRight = viewportWorldRect.x + viewportWorldRect.width;
+        const viewportBottom = viewportWorldRect.y + viewportWorldRect.height;
+
+        return elements.filter(el => {
+            if (!isElementVisible(el, elements)) return false;
+
+            if (
+                selectedElementIds.includes(el.id) ||
+                editingElement?.id === el.id ||
+                croppingState?.elementId === el.id
+            ) {
+                return true;
+            }
+
+            const bounds = getElementBounds(el, elements);
+            const right = bounds.x + bounds.width;
+            const bottom = bounds.y + bounds.height;
+
+            return (
+                right >= viewportWorldRect.x &&
+                bottom >= viewportWorldRect.y &&
+                bounds.x <= viewportRight &&
+                bounds.y <= viewportBottom
+            );
+        });
+    }, [elements, selectedElementIds, editingElement?.id, croppingState?.elementId, viewportWorldRect, isElementVisible]);
+
+    const promptBottomPadding = isCompactLayout ? 10 : 0;
+    const promptHeightForLayout = croppingState || !isCompactLayout ? 0 : promptDockHeight;
+    const compactToolbarBottomInset = croppingState ? 12 : Math.max(112, promptHeightForLayout + 14);
+    const compactPanelBottomInset = croppingState ? 8 : Math.max(8, promptHeightForLayout + 12);
+    const isLeftRailExpanded = isCompactLayout ? (!isLayerMinimized || isBoardPanelOpen) : false;
+    const desktopToolbarBottomInset = 12;
+    const desktopCanvasLeftInset = !isLayerMinimized ? 336 : 0;
+    const desktopCanvasRightInset = !isInspirationMinimized ? rightPanelWidth : 0;
+    const desktopLeftSafeInset = isCompactLayout
+        ? (isLeftRailExpanded ? 288 : Math.max(toolbarLeft + 74, 108))
+        : desktopCanvasLeftInset + 18;
+    const desktopRightSafeInset = isCompactLayout
+        ? rightPanelWidth + 14
+        : desktopCanvasRightInset + 18;
+    const projectMenuLeft = isCompactLayout ? 16 : desktopCanvasLeftInset + 14;
+    const canvasBottomInset = croppingState
+        ? 0
+        : (isCompactLayout
+            ? Math.max(156, promptHeightForLayout + 20)
+            : 112);
+
+    const handleToggleLayerPanel = useCallback(() => {
+        setIsLayerMinimized(prev => {
+            const next = !prev;
+            if (isCompactLayout && !next) {
+                setIsInspirationMinimized(true);
+            }
+            return next;
+        });
+    }, [isCompactLayout]);
+
+    const handleToggleRightPanel = useCallback(() => {
+        setIsInspirationMinimized(prev => {
+            const next = !prev;
+            if (isCompactLayout && !next) {
+                setIsLayerMinimized(true);
+            }
+            return next;
+        });
+    }, [isCompactLayout]);
+
+    const handleZoomStep = useCallback((direction: 'in' | 'out') => {
+        const factor = direction === 'in' ? 1.12 : 1 / 1.12;
+        const nextZoom = Math.max(0.1, Math.min(zoom * factor, 10));
+        const centerX = viewportSize.width / 2;
+        const centerY = viewportSize.height / 2;
+        const newPanX = centerX - (centerX - panOffset.x) * (nextZoom / zoom);
+        const newPanY = centerY - (centerY - panOffset.y) * (nextZoom / zoom);
+        updateActiveBoard(board => ({ ...board, zoom: nextZoom, panOffset: { x: newPanX, y: newPanY } }));
+    }, [panOffset.x, panOffset.y, updateActiveBoard, viewportSize.height, viewportSize.width, zoom]);
+
+    const handleFitView = useCallback(() => {
+        const svgBounds = svgRef.current?.getBoundingClientRect();
+        if (!svgBounds) return;
+
+        if (elements.length === 0) {
+            updateActiveBoard(board => ({
+                ...board,
+                zoom: 1,
+                panOffset: {
+                    x: svgBounds.width / 2,
+                    y: svgBounds.height / 2,
+                },
+            }));
+            return;
+        }
+
+        let minX = Infinity;
+        let minY = Infinity;
+        let maxX = -Infinity;
+        let maxY = -Infinity;
+
+        elements.forEach(el => {
+            const bounds = getElementBounds(el, elements);
+            minX = Math.min(minX, bounds.x);
+            minY = Math.min(minY, bounds.y);
+            maxX = Math.max(maxX, bounds.x + bounds.width);
+            maxY = Math.max(maxY, bounds.y + bounds.height);
+        });
+
+        const contentWidth = Math.max(1, maxX - minX);
+        const contentHeight = Math.max(1, maxY - minY);
+        const padding = 96;
+        const fitZoom = Math.max(
+            0.12,
+            Math.min(
+                4,
+                Math.min(
+                    (svgBounds.width - padding) / contentWidth,
+                    (svgBounds.height - padding) / contentHeight
+                )
+            )
+        );
+
+        const centerX = minX + contentWidth / 2;
+        const centerY = minY + contentHeight / 2;
+
+        updateActiveBoard(board => ({
+            ...board,
+            zoom: fitZoom,
+            panOffset: {
+                x: svgBounds.width / 2 - centerX * fitZoom,
+                y: svgBounds.height / 2 - centerY * fitZoom,
+            },
+        }));
+    }, [elements, updateActiveBoard]);
+
+    const workspaceSurface = '#f6f7f9';
+    const canvasViewportFill = isCompactLayout ? '#e7e9ee' : '#eceff3';
+    const desktopLayersVisible = !isCompactLayout && !isLayerMinimized;
+    const desktopChatVisible = !isCompactLayout && !isInspirationMinimized;
+    const desktopCanvasFrameBorder = selectedElementIds.length > 0 ? '#4f8aff' : '#cfd5df';
+
     return (
-        <div className="w-screen h-screen flex flex-col font-sans" style={{ backgroundColor: canvasBackgroundColor }} onDragOver={handleDragOver} onDrop={handleDrop}>
+        <div className="flex h-[100dvh] w-screen flex-col overflow-hidden font-sans" style={{ backgroundColor: workspaceSurface }} onDragOver={handleDragOver} onDrop={handleDrop}>
             {isLoading && <Loader progressMessage={progressMessage} />}
             {error && (
                 <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 p-3 bg-red-100 border border-red-400 text-red-700 rounded-md shadow-lg flex items-center max-w-lg">
@@ -2452,30 +2623,6 @@ const App: React.FC = () => {
                     </button>
                 </div>
             )}
-            <div className="absolute top-4 left-1/2 -translate-x-1/2 z-[45]">
-                <div className="inline-flex items-center rounded-full border border-neutral-200/80 bg-white/95 backdrop-blur-md p-1 shadow-lg">
-                    <button
-                        onClick={() => setWorkspaceMode('whiteboard')}
-                        className={`px-3 py-1 text-xs rounded-full transition-colors ${
-                            workspaceMode === 'whiteboard'
-                                ? 'bg-neutral-900 text-white'
-                                : 'text-neutral-700 hover:bg-neutral-100'
-                        }`}
-                    >
-                        🎨 自由白板
-                    </button>
-                    <button
-                        onClick={() => setWorkspaceMode('node')}
-                        className={`px-3 py-1 text-xs rounded-full transition-colors ${
-                            workspaceMode === 'node'
-                                ? 'bg-neutral-900 text-white'
-                                : 'text-neutral-700 hover:bg-neutral-100'
-                        }`}
-                    >
-                        🔗 节点工作流
-                    </button>
-                </div>
-            </div>
             <BoardPanel
                 isOpen={isBoardPanelOpen}
                 onClose={() => setIsBoardPanelOpen(false)}
@@ -2486,13 +2633,13 @@ const App: React.FC = () => {
                 onRenameBoard={handleRenameBoard}
                 onDuplicateBoard={handleDuplicateBoard}
                 onDeleteBoard={handleDeleteBoard}
-                generateBoardThumbnail={(els) => generateBoardThumbnail(els, activeBoard.canvasBackgroundColor)}
+                boardThumbnails={boardThumbnails}
             />
             {/* New Right Panel (multi-function: generate + inspiration) */}
-            {workspaceMode === 'whiteboard' && (
+            {(
                 <RightPanel
                     isMinimized={isInspirationMinimized}
-                    onToggleMinimize={() => setIsInspirationMinimized(prev => !prev)}
+                    onToggleMinimize={handleToggleRightPanel}
                     library={assetLibrary}
                     onRemove={(cat, id) => setAssetLibrary(prev => removeAsset(prev, cat, id))}
                     onRename={(cat, id, name) => setAssetLibrary(prev => renameAsset(prev, cat, id, name))}
@@ -2501,6 +2648,14 @@ const App: React.FC = () => {
                         handleGenerate(nextPrompt);
                     }}
                     onWidthChange={setRightPanelWidth}
+                    isCompact={isCompactLayout}
+                    compactBottomInset={compactPanelBottomInset}
+                    selectedElements={selectedCanvasElements}
+                    activeTool={activeTool}
+                    zoom={zoom}
+                    drawingOptions={drawingOptions}
+                    onElementUpdate={handlePropertyChange}
+                    onAlignSelection={handleAlignSelection}
                 />
             )}
             <CanvasSettings 
@@ -2524,38 +2679,6 @@ const App: React.FC = () => {
                 setModelPreference={setModelPreference}
                 t={t}
             />
-            {workspaceMode === 'whiteboard' && (
-                <>
-                    <Toolbar
-                        t={t}
-                        activeTool={activeTool}
-                        setActiveTool={setActiveTool}
-                        drawingOptions={drawingOptions}
-                        setDrawingOptions={setDrawingOptions}
-                        onUpload={handleAddImageElement}
-                        isCropping={!!croppingState}
-                        onConfirmCrop={handleConfirmCrop}
-                        onCancelCrop={handleCancelCrop}
-                        onSettingsClick={() => setIsSettingsPanelOpen(true)}
-                        onLayersClick={() => {}}
-                        onBoardsClick={() => setIsBoardPanelOpen(prev => !prev)}
-                        onAssetsClick={() => setIsInspirationMinimized(prev => !prev)}
-                        onUndo={handleUndo}
-                        onRedo={handleRedo}
-                        isLayerPanelExpanded={!isLayerMinimized}
-                        onHeightChange={() => { /* reserved for aligning external buttons under toolbar */ }}
-                        onLeftChange={(left) => setToolbarLeft(left)}
-                        canUndo={historyIndex > 0}
-                        canRedo={historyIndex < history.length - 1}
-                    />
-                    {/* Layer Toggle Button - positioned at bottom of toolbar column */}
-                    <LayerToggleButton
-                        isLayerMinimized={isLayerMinimized}
-                        onToggle={() => setIsLayerMinimized(prev => !prev)}
-                        toolbarLeft={toolbarLeft}
-                    />
-                </>
-            )}
             {addAssetModal?.open && (
                 <AssetAddModal 
                     isOpen={addAssetModal.open}
@@ -2577,68 +2700,233 @@ const App: React.FC = () => {
                     }}
                 />
             )}
-            {/* New Layer Panel (left side, minimizable) */}
-            {workspaceMode === 'whiteboard' && (
-                <LayerPanelMinimizable
-                    isMinimized={isLayerMinimized}
-                    onToggleMinimize={() => setIsLayerMinimized(prev => !prev)}
-                    elements={elements}
-                    selectedElementIds={selectedElementIds}
-                    onSelectElement={id => setSelectedElementIds(id ? [id] : [])}
-                    onToggleVisibility={id => handlePropertyChange(id, { isVisible: !(elements.find(el => el.id === id)?.isVisible ?? true) })}
-                    onToggleLock={id => handlePropertyChange(id, { isLocked: !(elements.find(el => el.id === id)?.isLocked ?? false) })}
-                    onRenameElement={(id, name) => handlePropertyChange(id, { name })}
-                    onReorder={(draggedId, targetId, position) => {
-                        commitAction(prev => {
-                            const newElements = [...prev];
-                            const draggedIndex = newElements.findIndex(el => el.id === draggedId);
-                            if (draggedIndex === -1) return prev;
+            {isCompactLayout ? (
+                <>
+                    <ProjectMenu
+                        title={activeBoard.name || 'Untitled'}
+                        left={projectMenuLeft}
+                        canDelete={boards.length > 1}
+                        canUndo={historyIndex > 0}
+                        canRedo={historyIndex < history.length - 1}
+                        onOpenBoards={() => setIsBoardPanelOpen(true)}
+                        onCreateProject={handleAddBoard}
+                        onDeleteCurrentProject={handleDeleteCurrentBoard}
+                        onImportImage={handleAddImageElement}
+                        onUndo={handleUndo}
+                        onRedo={handleRedo}
+                        onFitView={handleFitView}
+                        onZoomIn={() => handleZoomStep('in')}
+                        onZoomOut={() => handleZoomStep('out')}
+                    />
+                    <RightPanel
+                        isMinimized={isInspirationMinimized}
+                        onToggleMinimize={handleToggleRightPanel}
+                        library={assetLibrary}
+                        onRemove={(cat, id) => setAssetLibrary(prev => removeAsset(prev, cat, id))}
+                        onRename={(cat, id, name) => setAssetLibrary(prev => renameAsset(prev, cat, id, name))}
+                        onGenerate={(nextPrompt) => {
+                            setPrompt(nextPrompt);
+                            handleGenerate(nextPrompt);
+                        }}
+                        onWidthChange={setRightPanelWidth}
+                        isCompact={true}
+                        compactBottomInset={compactPanelBottomInset}
+                        selectedElements={selectedCanvasElements}
+                        activeTool={activeTool}
+                        zoom={zoom}
+                        drawingOptions={drawingOptions}
+                        onElementUpdate={handlePropertyChange}
+                        onAlignSelection={handleAlignSelection}
+                    />
+                    <Toolbar
+                        t={t}
+                        activeTool={activeTool}
+                        setActiveTool={setActiveTool}
+                        drawingOptions={drawingOptions}
+                        setDrawingOptions={setDrawingOptions}
+                        onUpload={handleAddImageElement}
+                        isCropping={!!croppingState}
+                        onConfirmCrop={handleConfirmCrop}
+                        onCancelCrop={handleCancelCrop}
+                        onSettingsClick={() => setIsSettingsPanelOpen(true)}
+                        onLayersClick={handleToggleLayerPanel}
+                        onBoardsClick={() => setIsBoardPanelOpen(prev => !prev)}
+                        onUndo={handleUndo}
+                        onRedo={handleRedo}
+                        canUndo={historyIndex > 0}
+                        canRedo={historyIndex < history.length - 1}
+                        isCompact={true}
+                        compactBottomInset={compactToolbarBottomInset}
+                    />
+                    <LayerPanelMinimizable
+                        isMinimized={isLayerMinimized}
+                        onToggleMinimize={handleToggleLayerPanel}
+                        elements={elements}
+                        selectedElementIds={selectedElementIds}
+                        onSelectElement={id => setSelectedElementIds(id ? [id] : [])}
+                        onToggleVisibility={id => handlePropertyChange(id, { isVisible: !(elements.find(el => el.id === id)?.isVisible ?? true) })}
+                        onToggleLock={id => handlePropertyChange(id, { isLocked: !(elements.find(el => el.id === id)?.isLocked ?? false) })}
+                        onRenameElement={(id, name) => handlePropertyChange(id, { name })}
+                        onReorder={(draggedId, targetId, position) => {
+                            commitAction(prev => {
+                                const newElements = [...prev];
+                                const draggedIndex = newElements.findIndex(el => el.id === draggedId);
+                                if (draggedIndex === -1) return prev;
 
-                            const [draggedItem] = newElements.splice(draggedIndex, 1);
-                            const targetIndex = newElements.findIndex(el => el.id === targetId);
-                            if (targetIndex === -1) {
-                                newElements.push(draggedItem); // Fallback
+                                const [draggedItem] = newElements.splice(draggedIndex, 1);
+                                const targetIndex = newElements.findIndex(el => el.id === targetId);
+                                if (targetIndex === -1) {
+                                    newElements.push(draggedItem);
+                                    return newElements;
+                                }
+
+                                const finalIndex = position === 'before' ? targetIndex : targetIndex + 1;
+                                newElements.splice(finalIndex, 0, draggedItem);
                                 return newElements;
-                            }
+                            });
+                        }}
+                        isCompact={true}
+                        compactBottomInset={compactPanelBottomInset}
+                    />
+                </>
+            ) : (
+                <>
+                    <header className="flex h-16 shrink-0 items-center justify-between border-b border-neutral-200 bg-[#f6f7f9] px-5">
+                        <div className="flex items-center gap-3">
+                            <button
+                                type="button"
+                                onClick={handleToggleLayerPanel}
+                                className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-neutral-200 bg-white text-neutral-600 shadow-[0_6px_16px_rgba(15,23,42,0.06)] transition-colors hover:bg-neutral-50"
+                                title={desktopLayersVisible ? '收起图层' : '打开图层'}
+                            >
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                    <path d="m12 3 9 5-9 5-9-5 9-5Z" />
+                                    <path d="m3 12 9 5 9-5" />
+                                    <path d="m3 16 9 5 9-5" />
+                                </svg>
+                            </button>
+                            <ProjectMenu
+                                embedded={true}
+                                title={activeBoard.name || 'Untitled'}
+                                canDelete={boards.length > 1}
+                                canUndo={historyIndex > 0}
+                                canRedo={historyIndex < history.length - 1}
+                                onOpenBoards={() => setIsBoardPanelOpen(true)}
+                                onCreateProject={handleAddBoard}
+                                onDeleteCurrentProject={handleDeleteCurrentBoard}
+                                onImportImage={handleAddImageElement}
+                                onUndo={handleUndo}
+                                onRedo={handleRedo}
+                                onFitView={handleFitView}
+                                onZoomIn={() => handleZoomStep('in')}
+                                onZoomOut={() => handleZoomStep('out')}
+                            />
+                        </div>
 
-                            const finalIndex = position === 'before' ? targetIndex : targetIndex + 1;
-                            newElements.splice(finalIndex, 0, draggedItem);
+                        <div className="flex items-center gap-3">
+                            <div className="inline-flex items-center rounded-full bg-white px-3 py-1.5 text-sm font-medium text-neutral-700 shadow-[0_6px_16px_rgba(15,23,42,0.06)]">
+                                ⚡ 30
+                            </div>
+                            <div className="h-9 w-9 rounded-full bg-[url('https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=80&q=80')] bg-cover bg-center shadow-sm" />
+                            <button
+                                type="button"
+                                onClick={handleToggleRightPanel}
+                                className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-neutral-200 bg-white text-neutral-600 shadow-[0_6px_16px_rgba(15,23,42,0.06)] transition-colors hover:bg-neutral-50"
+                                title={desktopChatVisible ? '收起对话' : '打开对话'}
+                            >
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                                </svg>
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => setIsSettingsPanelOpen(true)}
+                                className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-neutral-200 bg-white text-neutral-600 shadow-[0_6px_16px_rgba(15,23,42,0.06)] transition-colors hover:bg-neutral-50"
+                                title="设置"
+                            >
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                    <circle cx="12" cy="12" r="3" />
+                                    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+                                </svg>
+                            </button>
+                        </div>
+                    </header>
+                    {desktopLayersVisible && (
+                        <LayerPanelMinimizable
+                            isMinimized={false}
+                            onToggleMinimize={handleToggleLayerPanel}
+                            elements={elements}
+                            selectedElementIds={selectedElementIds}
+                            onSelectElement={id => setSelectedElementIds(id ? [id] : [])}
+                            onToggleVisibility={id => handlePropertyChange(id, { isVisible: !(elements.find(el => el.id === id)?.isVisible ?? true) })}
+                            onToggleLock={id => handlePropertyChange(id, { isLocked: !(elements.find(el => el.id === id)?.isLocked ?? false) })}
+                            onRenameElement={(id, name) => handlePropertyChange(id, { name })}
+                            onReorder={(draggedId, targetId, position) => {
+                                commitAction(prev => {
+                                    const newElements = [...prev];
+                                    const draggedIndex = newElements.findIndex(el => el.id === id);
+                                    if (draggedIndex === -1) return prev;
 
-                            return newElements;
-                        });
-                    }}
-                />
+                                    const [draggedItem] = newElements.splice(draggedIndex, 1);
+                                    const targetIndex = newElements.findIndex(el => el.id === targetId);
+                                    if (targetIndex === -1) {
+                                        newElements.push(draggedItem);
+                                        return newElements;
+                                    }
+
+                                    const finalIndex = position === 'before' ? targetIndex : targetIndex + 1;
+                                    newElements.splice(finalIndex, 0, draggedItem);
+                                    return newElements;
+                                });
+                            }}
+                        />
+                    )}
+                    {desktopChatVisible && (
+                        <RightPanel
+                            isMinimized={false}
+                            onToggleMinimize={handleToggleRightPanel}
+                            library={assetLibrary}
+                            onRemove={(cat, id) => setAssetLibrary(prev => removeAsset(prev, cat, id))}
+                            onRename={(cat, id, name) => setAssetLibrary(prev => renameAsset(prev, cat, id, name))}
+                            onGenerate={(nextPrompt) => {
+                                setPrompt(nextPrompt);
+                                handleGenerate(nextPrompt);
+                            }}
+                            onWidthChange={setRightPanelWidth}
+                            selectedElements={selectedCanvasElements}
+                            activeTool={activeTool}
+                            zoom={zoom}
+                            drawingOptions={drawingOptions}
+                            onElementUpdate={handlePropertyChange}
+                            onAlignSelection={handleAlignSelection}
+                        />
+                    )}
+                </>
             )}
             <div 
                 className="flex-grow relative overflow-hidden"
                 style={{
-                    paddingRight: workspaceMode === 'whiteboard' ? `${rightPanelWidth + 32}px` : '0px',
-                    paddingBottom: workspaceMode === 'whiteboard' ? (croppingState ? '0px' : '96px') : '0px',
-                    transition: 'padding-right 0.35s cubic-bezier(0.4, 0, 0.2, 1), padding-bottom 0.35s cubic-bezier(0.4, 0, 0.2, 1)'
+                    paddingLeft: isCompactLayout ? '10px' : (desktopLayersVisible ? '336px' : '24px'),
+                    paddingRight: isCompactLayout ? '10px' : (desktopChatVisible ? '360px' : '24px'),
+                    paddingTop: isCompactLayout ? '0px' : '20px',
+                    paddingBottom: isCompactLayout ? `${canvasBottomInset}px` : '168px',
+                    backgroundColor: isCompactLayout ? '#eef1f4' : '#eef1f4',
                 }}
             >
-                {workspaceMode === 'node' && (
-                    <NodeWorkflowPanel
-                        prompt={prompt}
-                        setPrompt={setPrompt}
-                        generationMode={generationMode}
-                        setGenerationMode={setGenerationMode}
-                        selectedImageModel={modelPreference.imageModel}
-                        selectedVideoModel={modelPreference.videoModel}
-                        imageModelOptions={IMAGE_MODEL_OPTIONS}
-                        videoModelOptions={VIDEO_MODEL_OPTIONS}
-                        onImageModelChange={(model) => setModelPreference(prev => ({ ...prev, imageModel: model }))}
-                        onVideoModelChange={(model) => setModelPreference(prev => ({ ...prev, videoModel: model }))}
-                        attachments={chatAttachments}
-                        canvasImages={elements
-                            .filter((el): el is ImageElement => el.type === 'image')
-                            .map(el => ({ id: el.id, name: el.name, href: el.href, mimeType: el.mimeType }))}
-                        onRemoveAttachment={handleRemoveChatAttachment}
-                        onUploadFiles={handleAddAttachmentFiles}
-                        onDropCanvasImage={handleAddAttachmentFromCanvas}
-                        isRunning={isLoading || isEnhancingPrompt}
-                        onRunWorkflow={handleRunNodeWorkflow}
-                    />
+                {!croppingState && !isCompactLayout && (
+                    <div className="pointer-events-none absolute inset-0 z-[1] flex items-start justify-center pt-8">
+                        <div
+                            className="relative h-[min(56vh,560px)] w-[min(56vw,760px)] rounded-[28px] bg-[#e5e8ed] shadow-[inset_0_1px_0_rgba(255,255,255,0.9),0_18px_42px_rgba(15,23,42,0.10)]"
+                            style={{ border: `2px solid ${desktopCanvasFrameBorder}` }}
+                        >
+                            <div className="flex h-full items-center justify-center text-neutral-300">
+                                <svg width="148" height="148" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2">
+                                    <path d="M4 19h16a1 1 0 0 0 .8-1.6l-4-5.33a1 1 0 0 0-1.6 0L12 16 8.8 11.73a1 1 0 0 0-1.6 0L3.2 17.4A1 1 0 0 0 4 19Z" />
+                                    <circle cx="16.5" cy="7.5" r="1.5" />
+                                </svg>
+                            </div>
+                        </div>
+                    </div>
                 )}
                 <svg
                     ref={svgRef}
@@ -2652,10 +2940,7 @@ const App: React.FC = () => {
                     style={{ cursor }}
                 >
                     <defs>
-                        <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
-                            <circle cx="1" cy="1" r="1" className="fill-gray-400 opacity-50"/>
-                        </pattern>
-                         {elements.map(el => {
+                         {renderElements.map(el => {
                             if (el.type === 'image' && el.borderRadius && el.borderRadius > 0) {
                                 const clipPathId = `clip-${el.id}`;
                                 return (
@@ -2673,11 +2958,9 @@ const App: React.FC = () => {
                         })}
                     </defs>
                     <g transform={`translate(${panOffset.x}, ${panOffset.y}) scale(${zoom})`}>
-                        <rect x={-panOffset.x/zoom} y={-panOffset.y/zoom} width={`calc(100% / ${zoom})`} height={`calc(100% / ${zoom})`} fill="url(#grid)" />
+                        <rect x={-panOffset.x/zoom} y={-panOffset.y/zoom} width={`calc(100% / ${zoom})`} height={`calc(100% / ${zoom})`} fill={canvasViewportFill} />
                         
-                        {elements.map(el => {
-                            if (!isElementVisible(el, elements)) return null;
-
+                        {renderElements.map(el => {
                             const isSelected = selectedElementIds.includes(el.id);
                             let selectionComponent = null;
 
@@ -2772,8 +3055,6 @@ const App: React.FC = () => {
                                     <g
                                         key={el.id}
                                         data-id={el.id}
-                                        draggable={workspaceMode === 'node'}
-                                        onDragStart={(e) => handleCanvasImageDragStart(el, e)}
                                     >
                                         <image 
                                             transform={`translate(${el.x}, ${el.y})`} 
@@ -2875,19 +3156,19 @@ const App: React.FC = () => {
                                     <div className="p-1.5 bg-white rounded-lg shadow-lg flex items-center justify-start space-x-2 border border-gray-200 text-gray-800 overflow-x-auto">
                                         <button title={t('contextMenu.copy')} onClick={() => handleCopyElement(element)} className="p-2 rounded hover:bg-gray-100 flex items-center justify-center"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>
                                         {element.type === 'image' && <button title={t('contextMenu.download')} onClick={() => handleDownloadImage(element)} className="p-2 rounded hover:bg-gray-100 flex items-center justify-center"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg></button>}
-                                        {element.type === 'image' && <button title="加入素材库" onClick={async () => {
+                                        {element.type === 'image' && <button title="Add to asset library" onClick={async () => {
                                                 const { href, mimeType, width, height } = { href: (element as ImageElement).href, mimeType: (element as ImageElement).mimeType, width: (element as ImageElement).width, height: (element as ImageElement).height };
                                                 setAddAssetModal({ open: true, dataUrl: href, mimeType, width, height });
                                             }} className="p-2 rounded hover:bg-gray-100 flex items-center justify-center">
                                                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/><path d="M12 8v8"/></svg>
                                             </button>}
-                                        {element.type === 'image' && <button title="BANANA 一键识别拆层" onClick={() => handleSplitImageWithBanana(element)} className="p-2 rounded hover:bg-gray-100 flex items-center justify-center disabled:opacity-50" disabled={isLoading}>
+                                        {element.type === 'image' && <button title="BANANA auto-split layers" onClick={() => handleSplitImageWithBanana(element)} className="p-2 rounded hover:bg-gray-100 flex items-center justify-center disabled:opacity-50" disabled={isLoading}>
                                                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="8" height="8" rx="1"></rect><rect x="13" y="3" width="8" height="8" rx="1"></rect><rect x="3" y="13" width="8" height="8" rx="1"></rect><path d="M13 17h8"></path><path d="M17 13v8"></path></svg>
                                             </button>}
-                                        {element.type === 'image' && <button title="BANANA Agent：高清放大 x2" onClick={() => handleUpscaleImageWithBanana(element)} className="p-2 rounded hover:bg-gray-100 flex items-center justify-center disabled:opacity-50" disabled={isLoading}>
+                                        {element.type === 'image' && <button title="BANANA Agent锛氶珮娓呮斁澶?x2" onClick={() => handleUpscaleImageWithBanana(element)} className="p-2 rounded hover:bg-gray-100 flex items-center justify-center disabled:opacity-50" disabled={isLoading}>
                                                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="7"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line><line x1="11" y1="8" x2="11" y2="14"></line><line x1="8" y1="11" x2="14" y2="11"></line></svg>
                                             </button>}
-                                        {element.type === 'image' && <button title="BANANA Agent：智能去背景" onClick={() => handleRemoveBackgroundWithBanana(element)} className="p-2 rounded hover:bg-gray-100 flex items-center justify-center disabled:opacity-50" disabled={isLoading}>
+                                        {element.type === 'image' && <button title="BANANA Agent锛氭櫤鑳藉幓鑳屾櫙" onClick={() => handleRemoveBackgroundWithBanana(element)} className="p-2 rounded hover:bg-gray-100 flex items-center justify-center disabled:opacity-50" disabled={isLoading}>
                                                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3l18 18"></path><path d="M20 12a8 8 0 0 1-11.31 7.31"></path><path d="M4 12a8 8 0 0 1 11.31-7.31"></path></svg>
                                             </button>}
                                         {element.type === 'video' && <a title={t('contextMenu.download')} href={element.href} download={`video-${element.id}.mp4`} className="p-2 rounded hover:bg-gray-100 flex items-center justify-center"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg></a>}
@@ -2956,7 +3237,7 @@ const App: React.FC = () => {
                         {croppingState && (
                              <g>
                                 <path
-                                    d={`M ${-panOffset.x/zoom},${-panOffset.y/zoom} H ${window.innerWidth/zoom - panOffset.x/zoom} V ${window.innerHeight/zoom - panOffset.y/zoom} H ${-panOffset.x/zoom} Z M ${croppingState.cropBox.x},${croppingState.cropBox.y} v ${croppingState.cropBox.height} h ${croppingState.cropBox.width} v ${-croppingState.cropBox.height} Z`}
+                                    d={`M ${-panOffset.x/zoom},${-panOffset.y/zoom} H ${viewportSize.width/zoom - panOffset.x/zoom} V ${viewportSize.height/zoom - panOffset.y/zoom} H ${-panOffset.x/zoom} Z M ${croppingState.cropBox.x},${croppingState.cropBox.y} v ${croppingState.cropBox.height} h ${croppingState.cropBox.width} v ${-croppingState.cropBox.height} Z`}
                                     fill="rgba(0,0,0,0.5)"
                                     fillRule="evenodd"
                                     pointerEvents="none"
@@ -3015,16 +3296,16 @@ const App: React.FC = () => {
                     );
                 })()}
             </div>
-            {!croppingState && workspaceMode === 'whiteboard' && (
-                <div 
-                    className="absolute bottom-0 left-0 right-0 z-[40] transition-all duration-300 ease-out flex justify-center pointer-events-none"
-                    style={{
-                        paddingLeft: isLayerMinimized ? '0px' : '288px',
-                        paddingRight: `${rightPanelWidth + 32}px`,
-                        paddingBottom: '24px'
-                    }}
-                >
-                    <div className="pointer-events-auto w-[90%] max-w-4xl transition-transform hover:-translate-y-1 duration-300 drop-shadow-2xl">
+            {!croppingState && !isCompactLayout && (
+                <div className="pointer-events-none absolute inset-0 z-[39]">
+                    <div
+                        className="absolute pointer-events-auto"
+                        style={{
+                            left: 'clamp(88px, 9vw, 132px)',
+                            bottom: '124px',
+                            width: 'clamp(380px, 34vw, 560px)',
+                        }}
+                    >
                         <PromptBar 
                             t={t}
                             prompt={prompt} 
@@ -3033,6 +3314,101 @@ const App: React.FC = () => {
                             isLoading={isLoading} 
                             isSelectionActive={isSelectionActive} 
                             selectedElementCount={selectedElementIds.length}
+                            selectedCanvasElements={selectedCanvasElements}
+                            onAddUserEffect={handleAddUserEffect}
+                            userEffects={userEffects}
+                            onDeleteUserEffect={handleDeleteUserEffect}
+                            generationMode={generationMode}
+                            setGenerationMode={setGenerationMode}
+                            videoAspectRatio={videoAspectRatio}
+                            setVideoAspectRatio={setVideoAspectRatio}
+                            selectedImageModel={modelPreference.imageModel}
+                            selectedVideoModel={modelPreference.videoModel}
+                            imageModelOptions={IMAGE_MODEL_OPTIONS}
+                            videoModelOptions={VIDEO_MODEL_OPTIONS}
+                            onImageModelChange={(model) => setModelPreference(prev => ({ ...prev, imageModel: model }))}
+                            onVideoModelChange={(model) => setModelPreference(prev => ({ ...prev, videoModel: model }))}
+                            canvasElements={elements}
+                            onMentionedElementIds={setMentionedElementIds}
+                            onEnhancePrompt={handleEnhancePrompt}
+                            isEnhancingPrompt={isEnhancingPrompt}
+                            onLockCharacterFromSelection={handleLockCharacterFromSelection}
+                            canLockCharacter={!!selectedSingleImage}
+                            characterLocks={characterLocks}
+                            activeCharacterLockId={activeCharacterLockId}
+                            onSetActiveCharacterLock={handleSetActiveCharacterLock}
+                            layout="floating"
+                        />
+                    </div>
+                </div>
+            )}
+            {!croppingState && !isCompactLayout && isLayerMinimized && (
+                <button
+                    onClick={handleToggleLayerPanel}
+                    className="fixed left-4 z-[41] inline-flex h-10 items-center rounded-full border border-white/8 bg-[#17171b]/92 px-4 text-sm font-semibold text-white shadow-md backdrop-blur transition-colors hover:bg-[#202026]"
+                    style={{ bottom: '68px' }}
+                    aria-label="Open layers"
+                    title="Open layers"
+                >
+                    图层
+                </button>
+            )}
+            {!croppingState && !isCompactLayout && (
+                <div
+                    className="absolute z-[41] inline-flex items-center gap-2 rounded-2xl border border-white/8 bg-[#17171b]/92 px-3 py-2 text-sm text-neutral-200 shadow-[0_14px_28px_rgba(0,0,0,0.28)] backdrop-blur"
+                    style={{ left: `${desktopCanvasLeftInset + 18}px`, bottom: '16px' }}
+                >
+                    <button
+                        onClick={handleFitView}
+                        className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-white/8 bg-white/[0.03] text-neutral-200 transition-colors hover:bg-white/10"
+                        aria-label="Fit view"
+                        title="Fit view"
+                    >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <path d="M8 3H5a2 2 0 0 0-2 2v3" />
+                            <path d="M16 3h3a2 2 0 0 1 2 2v3" />
+                            <path d="M8 21H5a2 2 0 0 1-2-2v-3" />
+                            <path d="M16 21h3a2 2 0 0 0 2-2v-3" />
+                        </svg>
+                    </button>
+                    <button
+                        onClick={() => handleZoomStep('out')}
+                        className="h-7 w-7 rounded-full border border-white/8 bg-white/[0.03] text-neutral-200 transition-colors hover:bg-white/10"
+                        aria-label="Zoom out"
+                        title="Zoom out"
+                    >
+                        -
+                    </button>
+                    <span className="w-14 text-center font-medium">{Math.round(zoom * 100)}%</span>
+                    <button
+                        onClick={() => handleZoomStep('in')}
+                        className="h-7 w-7 rounded-full border border-white/8 bg-white/[0.03] text-neutral-200 transition-colors hover:bg-white/10"
+                        aria-label="Zoom in"
+                        title="Zoom in"
+                    >
+                        +
+                    </button>
+                </div>
+            )}
+            {!croppingState && isCompactLayout && (
+                <div 
+                    className="absolute bottom-0 left-0 right-0 z-[40] transition-all duration-300 ease-out flex justify-center pointer-events-none"
+                    style={{
+                        paddingLeft: isCompactLayout ? '10px' : `${desktopLeftSafeInset}px`,
+                        paddingRight: isCompactLayout ? '10px' : `${desktopRightSafeInset}px`,
+                        paddingBottom: `${promptBottomPadding}px`
+                    }}
+                >
+                    <div ref={promptDockRef} className="pointer-events-auto w-full max-w-5xl transition-transform duration-300 drop-shadow-2xl hover:-translate-y-1">
+                        <PromptBar 
+                            t={t}
+                            prompt={prompt} 
+                            setPrompt={setPrompt} 
+                            onGenerate={handleGenerate} 
+                            isLoading={isLoading} 
+                            isSelectionActive={isSelectionActive} 
+                            selectedElementCount={selectedElementIds.length}
+                            selectedCanvasElements={selectedCanvasElements}
                             onAddUserEffect={handleAddUserEffect}
                             userEffects={userEffects}
                             onDeleteUserEffect={handleDeleteUserEffect}
@@ -3064,3 +3440,5 @@ const App: React.FC = () => {
 };
 
 export default App;
+
+

@@ -151,7 +151,7 @@ export interface ModelPreference {
 }
 
 // Agent / Workflow
-export type WorkspaceMode = 'whiteboard' | 'node';
+export type WorkspaceMode = 'whiteboard';
 export type PromptEnhanceMode = 'smart' | 'style' | 'precise' | 'translate';
 
 export interface PromptEnhanceRequest {

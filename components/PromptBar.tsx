@@ -1,28 +1,15 @@
-/**
- * ============================================
- * AI提示词输入栏组件 (Prompt Bar)
- * ============================================
- *
- * 在原有功能基础上升级：
- * - 使用 RichPromptEditor（Tiptap）替换普通 textarea
- * - 支持输入 @ 弹出画布元素选择菜单，选中后嵌入带缩略图徽章
- * - 生成时将 @ 引用元素作为额外参考图传给 AI
- */
-
-import React, { useRef, useCallback, useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { QuickPrompts } from './QuickPrompts';
 import RichPromptEditor, { type RichPromptEditorHandle } from './RichPromptEditor';
 import type { MentionItem } from './MentionList';
 import type {
-    UserEffect,
-    GenerationMode,
+    CharacterLockProfile,
     Element,
+    GenerationMode,
     PromptEnhanceMode,
     PromptEnhanceResult,
-    CharacterLockProfile,
+    UserEffect,
 } from '../types';
-
-// ---- Props 接口 -------------------------------------------------
 
 interface PromptBarProps {
     t: (key: string, ...args: any[]) => string;
@@ -32,6 +19,7 @@ interface PromptBarProps {
     isLoading: boolean;
     isSelectionActive: boolean;
     selectedElementCount: number;
+    selectedCanvasElements?: Element[];
     userEffects: UserEffect[];
     onAddUserEffect: (effect: UserEffect) => void;
     onDeleteUserEffect: (id: string) => void;
@@ -45,9 +33,7 @@ interface PromptBarProps {
     videoModelOptions?: string[];
     onImageModelChange?: (model: string) => void;
     onVideoModelChange?: (model: string) => void;
-    /** 当前画布上所有元素（用于 @ 引用菜单） */
     canvasElements?: Element[];
-    /** 生成时回调：通知父组件本次携带了哪些 @引用元素的 id 列表 */
     onMentionedElementIds?: (ids: string[]) => void;
     onEnhancePrompt?: (payload: { prompt: string; mode: PromptEnhanceMode; stylePreset?: string }) => Promise<PromptEnhanceResult>;
     isEnhancingPrompt?: boolean;
@@ -56,37 +42,47 @@ interface PromptBarProps {
     characterLocks?: CharacterLockProfile[];
     activeCharacterLockId?: string | null;
     onSetActiveCharacterLock?: (id: string | null) => void;
+    layout?: 'dock' | 'floating';
 }
-
-// ---- 工具：将画布元素转为 MentionItem ---------------------------
 
 function getElementLabel(el: Element): string {
     if (el.name) return el.name;
-    const typeNames: Record<string, string> = {
+    const fallbackMap: Record<string, string> = {
         image: '图片',
         video: '视频',
         shape: '形状',
         text: '文字',
-        path: '笔迹',
-        group: '组合',
+        path: '路径',
+        group: '分组',
         arrow: '箭头',
-        line: '直线',
+        line: '线条',
     };
-    return `${typeNames[el.type] ?? el.type} ${el.id.slice(-4)}`;
+    return `${fallbackMap[el.type] ?? el.type} ${el.id.slice(-4)}`;
 }
 
 function elementToMentionItem(el: Element): MentionItem {
-    let thumbnail = '';
-    if (el.type === 'image') thumbnail = el.href;
     return {
         id: el.id,
         label: getElementLabel(el),
-        thumbnail,
+        thumbnail: el.type === 'image' ? el.href : '',
         elementType: el.type,
     };
 }
 
-// ---- 主组件 ----------------------------------------------------
+const STYLE_PRESETS = [
+    { value: 'cinematic', label: '电影感' },
+    { value: 'ink', label: '水墨' },
+    { value: 'ghibli', label: '吉卜力' },
+    { value: 'cyberpunk', label: '赛博朋克' },
+    { value: 'pixar3d', label: '3D 动画' },
+];
+
+const ENHANCE_MODE_LABELS: Record<PromptEnhanceMode, string> = {
+    smart: '智能润色',
+    style: '风格强化',
+    precise: '精准优化',
+    translate: '中英互转',
+};
 
 export const PromptBar: React.FC<PromptBarProps> = ({
     t,
@@ -96,6 +92,7 @@ export const PromptBar: React.FC<PromptBarProps> = ({
     isLoading,
     isSelectionActive,
     selectedElementCount,
+    selectedCanvasElements = [],
     userEffects,
     onAddUserEffect,
     onDeleteUserEffect,
@@ -118,6 +115,7 @@ export const PromptBar: React.FC<PromptBarProps> = ({
     characterLocks = [],
     activeCharacterLockId = null,
     onSetActiveCharacterLock,
+    layout = 'dock',
 }) => {
     const editorRef = useRef<RichPromptEditorHandle>(null);
     const [enhanceMode, setEnhanceMode] = useState<PromptEnhanceMode>('smart');
@@ -125,16 +123,23 @@ export const PromptBar: React.FC<PromptBarProps> = ({
     const [enhanceResult, setEnhanceResult] = useState<PromptEnhanceResult | null>(null);
     const [enhanceError, setEnhanceError] = useState<string | null>(null);
 
-    // 将画布元素列表转为 MentionItem（仅对图片以外的非隐藏元素也包含）
     const canvasItems = useMemo<MentionItem[]>(
-        () =>
-            canvasElements
-                .filter(el => el.isVisible !== false)
-                .map(elementToMentionItem),
+        () => canvasElements.filter(el => el.isVisible !== false).map(elementToMentionItem),
         [canvasElements]
     );
 
-    // ---- 占位符文本 -------------------------------------------
+    const selectedMentionItems = useMemo<MentionItem[]>(
+        () => selectedCanvasElements.filter(el => el.isVisible !== false).map(elementToMentionItem),
+        [selectedCanvasElements]
+    );
+
+    const inferredLineCount = useMemo(() => {
+        const lines = prompt.split(/\r?\n/);
+        const wrappedLines = lines.reduce((total, line) => total + Math.max(1, Math.ceil(line.length / 42)), 0);
+        return Math.min(12, Math.max(2, wrappedLines));
+    }, [prompt]);
+
+    const editorMinHeight = Math.max(56, Math.min(220, inferredLineCount * 24 + 14));
 
     const getPlaceholderText = () => {
         if (!isSelectionActive) {
@@ -146,8 +151,6 @@ export const PromptBar: React.FC<PromptBarProps> = ({
         return t('promptBar.placeholderMultiple', selectedElementCount);
     };
 
-    // ---- 富文本内容变化 ----------------------------------------
-
     const handleTextChange = useCallback(
         (plainText: string) => {
             setPrompt(plainText);
@@ -155,15 +158,16 @@ export const PromptBar: React.FC<PromptBarProps> = ({
         [setPrompt]
     );
 
-    // ---- 触发生成 -----------------------------------------------
+    const syncMentionIds = useCallback(() => {
+        const mentions = editorRef.current?.getMentions() ?? [];
+        onMentionedElementIds?.(mentions.map(item => item.id));
+    }, [onMentionedElementIds]);
 
     const handleGenerate = useCallback(() => {
         if (isLoading || !prompt.trim()) return;
-        // 提取 @引用元素 id 列表通知父组件
-        const mentions = editorRef.current?.getMentions() ?? [];
-        onMentionedElementIds?.(mentions.map(m => m.id));
+        syncMentionIds();
         onGenerate();
-    }, [isLoading, prompt, onGenerate, onMentionedElementIds]);
+    }, [isLoading, onGenerate, prompt, syncMentionIds]);
 
     const handleEnhancePrompt = useCallback(async () => {
         if (!prompt.trim() || !onEnhancePrompt || isEnhancingPrompt) return;
@@ -180,21 +184,16 @@ export const PromptBar: React.FC<PromptBarProps> = ({
             setEnhanceError(message);
             setEnhanceResult(null);
         }
-    }, [prompt, onEnhancePrompt, isEnhancingPrompt, enhanceMode, stylePreset]);
+    }, [enhanceMode, isEnhancingPrompt, onEnhancePrompt, prompt, stylePreset]);
 
     const handleApplyEnhancedPrompt = useCallback(() => {
         if (!enhanceResult?.enhancedPrompt) return;
         setPrompt(enhanceResult.enhancedPrompt);
-        setTimeout(() => editorRef.current?.focus(), 10);
+        setTimeout(() => editorRef.current?.focus(), 0);
     }, [enhanceResult, setPrompt]);
 
-    // ---- 保存效果 -----------------------------------------------
-
-    const handleSaveEffect = () => {
-        const name = window.prompt(
-            t('myEffects.saveEffectPrompt'),
-            t('myEffects.defaultName')
-        );
+    const handleSaveEffect = useCallback(() => {
+        const name = window.prompt(t('myEffects.saveEffectPrompt'), t('myEffects.defaultName'));
         if (name && prompt.trim()) {
             onAddUserEffect({
                 id: `user_${Date.now()}`,
@@ -202,298 +201,401 @@ export const PromptBar: React.FC<PromptBarProps> = ({
                 value: prompt,
             });
         }
-    };
-
-    // ---- 快捷提示词应用 -----------------------------------------
+    }, [onAddUserEffect, prompt, t]);
 
     const handleQuickPrompt = useCallback(
         (value: string) => {
             setPrompt(value);
-            // 聚焦并将光标移到末尾
-            setTimeout(() => editorRef.current?.focus(), 10);
+            setTimeout(() => editorRef.current?.focus(), 0);
         },
         [setPrompt]
     );
 
-    // ---- 样式 ---------------------------------------------------
+    const handleBindSelection = useCallback(() => {
+        if (selectedMentionItems.length === 0) return;
+        selectedMentionItems.forEach(item => editorRef.current?.insertMention(item));
+        setTimeout(() => {
+            syncMentionIds();
+            editorRef.current?.focus();
+        }, 0);
+    }, [selectedMentionItems, syncMentionIds]);
+
+    const bindingHint = selectedMentionItems.length > 0
+        ? `当前已选中 ${selectedMentionItems.length} 个画布元素，可一键绑定到提示词`
+        : canvasItems.length > 0
+            ? '输入 @ 可直接引用画布中的图片、文字或形状'
+            : '在画布中创建或选中元素后，就能把它们绑定到提示词里';
 
     const containerStyle: React.CSSProperties = {
         backgroundColor: 'var(--ui-bg-color)',
     };
 
-    // ---- 渲染 ---------------------------------------------------
+    const selectionStrip = selectedMentionItems.length > 0 ? (
+        <div className="mb-3 rounded-[18px] border border-blue-200/80 bg-blue-50/85 p-3">
+            <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                    <div className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-600">Canvas Binding</div>
+                    <div className="mt-1 text-sm text-neutral-700">{bindingHint}</div>
+                </div>
+                <button
+                    onClick={handleBindSelection}
+                    className="shrink-0 rounded-full border border-blue-300 bg-white px-3 py-1.5 text-xs font-medium text-blue-700 transition-colors hover:bg-blue-100"
+                >
+                    绑定选中对象
+                </button>
+            </div>
+            <div className="mt-3 flex flex-wrap gap-2">
+                {selectedMentionItems.map(item => (
+                    <span
+                        key={item.id}
+                        className="inline-flex items-center gap-2 rounded-full border border-blue-200 bg-white/90 px-3 py-1 text-xs text-neutral-700"
+                    >
+                        <span className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-blue-100 text-[10px] font-semibold text-blue-700">
+                            {item.label.slice(0, 1)}
+                        </span>
+                        <span className="max-w-[120px] truncate">{item.label}</span>
+                    </span>
+                ))}
+            </div>
+        </div>
+    ) : null;
+
+    const footerControls = (
+        <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-neutral-200/70 pt-2.5">
+            <div className="inline-flex items-center rounded-full bg-neutral-100 p-0.5">
+                <button
+                    onClick={() => setGenerationMode('image')}
+                    className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                        generationMode === 'image'
+                            ? 'bg-white text-neutral-900 shadow-sm'
+                            : 'text-neutral-600 hover:text-neutral-900'
+                    }`}
+                >
+                    {t('promptBar.imageMode')}
+                </button>
+                <button
+                    onClick={() => setGenerationMode('video')}
+                    className={`rounded-full px-3 py-1 text-xs font-medium transition-colors ${
+                        generationMode === 'video'
+                            ? 'bg-white text-neutral-900 shadow-sm'
+                            : 'text-neutral-600 hover:text-neutral-900'
+                    }`}
+                >
+                    {t('promptBar.videoMode')}
+                </button>
+            </div>
+
+            {generationMode === 'video' && (
+                <div className="inline-flex items-center rounded-full bg-neutral-100 p-0.5">
+                    <button
+                        onClick={() => setVideoAspectRatio('16:9')}
+                        title={t('promptBar.aspectRatioHorizontal')}
+                        className={`rounded-full px-2 py-1 text-xs transition-colors ${
+                            videoAspectRatio === '16:9' ? 'bg-white text-neutral-900 shadow-sm' : 'text-neutral-600'
+                        }`}
+                    >
+                        16:9
+                    </button>
+                    <button
+                        onClick={() => setVideoAspectRatio('9:16')}
+                        title={t('promptBar.aspectRatioVertical')}
+                        className={`rounded-full px-2 py-1 text-xs transition-colors ${
+                            videoAspectRatio === '9:16' ? 'bg-white text-neutral-900 shadow-sm' : 'text-neutral-600'
+                        }`}
+                    >
+                        9:16
+                    </button>
+                </div>
+            )}
+
+            {generationMode === 'image' && imageModelOptions.length > 0 && (
+                <select
+                    value={selectedImageModel}
+                    onChange={(e) => onImageModelChange?.(e.target.value)}
+                    className="rounded-full bg-neutral-100 px-3 py-1.5 text-xs text-neutral-700 outline-none"
+                    title="Image model"
+                >
+                    {imageModelOptions.map(model => (
+                        <option key={model} value={model}>{model}</option>
+                    ))}
+                </select>
+            )}
+
+            {generationMode === 'video' && videoModelOptions.length > 0 && (
+                <select
+                    value={selectedVideoModel}
+                    onChange={(e) => onVideoModelChange?.(e.target.value)}
+                    className="rounded-full bg-neutral-100 px-3 py-1.5 text-xs text-neutral-700 outline-none"
+                    title="Video model"
+                >
+                    {videoModelOptions.map(model => (
+                        <option key={model} value={model}>{model}</option>
+                    ))}
+                </select>
+            )}
+
+            {onEnhancePrompt && (
+                <>
+                    <select
+                        value={enhanceMode}
+                        onChange={(e) => setEnhanceMode(e.target.value as PromptEnhanceMode)}
+                        className="rounded-full bg-neutral-100 px-3 py-1.5 text-xs text-neutral-700 outline-none"
+                        title="Enhance mode"
+                    >
+                        {Object.entries(ENHANCE_MODE_LABELS).map(([value, label]) => (
+                            <option key={value} value={value}>{label}</option>
+                        ))}
+                    </select>
+
+                    {enhanceMode === 'style' && (
+                        <select
+                            value={stylePreset}
+                            onChange={(e) => setStylePreset(e.target.value)}
+                            className="rounded-full bg-neutral-100 px-3 py-1.5 text-xs text-neutral-700 outline-none"
+                            title="Style preset"
+                        >
+                            {STYLE_PRESETS.map(option => (
+                                <option key={option.value} value={option.value}>{option.label}</option>
+                            ))}
+                        </select>
+                    )}
+
+                    <button
+                        onClick={handleEnhancePrompt}
+                        disabled={isEnhancingPrompt || !prompt.trim()}
+                        className="rounded-full bg-neutral-100 px-3 py-1.5 text-xs text-neutral-800 transition-colors hover:bg-neutral-200 disabled:opacity-40"
+                    >
+                        {isEnhancingPrompt ? '润色中...' : 'AI 润色'}
+                    </button>
+                </>
+            )}
+
+            {onLockCharacterFromSelection && (
+                <>
+                    <button
+                        onClick={() => onLockCharacterFromSelection()}
+                        disabled={!canLockCharacter}
+                        className="rounded-full bg-neutral-100 px-3 py-1.5 text-xs text-neutral-800 transition-colors hover:bg-neutral-200 disabled:opacity-40"
+                    >
+                        锁定角色
+                    </button>
+                    {characterLocks.length > 0 && (
+                        <select
+                            value={activeCharacterLockId ?? ''}
+                            onChange={(e) => onSetActiveCharacterLock?.(e.target.value || null)}
+                            className="rounded-full bg-neutral-100 px-3 py-1.5 text-xs text-neutral-700 outline-none"
+                            title="角色一致性"
+                        >
+                            <option value="">不使用角色锁定</option>
+                            {characterLocks.map(lock => (
+                                <option key={lock.id} value={lock.id}>{lock.name}</option>
+                            ))}
+                        </select>
+                    )}
+                </>
+            )}
+
+            <QuickPrompts
+                t={t}
+                setPrompt={handleQuickPrompt}
+                disabled={!isSelectionActive || isLoading}
+                userEffects={userEffects}
+                onDeleteUserEffect={onDeleteUserEffect}
+            />
+
+            {prompt.trim() && !isLoading && (
+                <button
+                    onClick={handleSaveEffect}
+                    title={t('myEffects.saveEffectTooltip')}
+                    className="rounded-full bg-neutral-100 px-3 py-1.5 text-xs text-neutral-700 transition-colors hover:bg-neutral-200"
+                >
+                    保存效果
+                </button>
+            )}
+        </div>
+    );
+
+    if (layout === 'floating') {
+        return (
+            <div className="w-full">
+                <div
+                    style={containerStyle}
+                    className="rounded-[28px] border border-neutral-300/80 bg-[#f5f5f6]/95 p-4 shadow-[0_20px_48px_rgba(15,23,42,0.14)] backdrop-blur-xl"
+                >
+                    <div className="mb-3 flex items-center justify-between gap-3">
+                        <div>
+                            <div className="text-xs font-semibold uppercase tracking-[0.22em] text-neutral-400">Prompt Studio</div>
+                            <div className="mt-1 text-base font-semibold text-neutral-900">今天我们要创作什么</div>
+                        </div>
+                        <div className="rounded-full bg-neutral-100 px-3 py-1 text-xs text-neutral-500">
+                            {generationMode === 'video' ? 'Video' : 'Image'}
+                        </div>
+                    </div>
+
+                    {selectionStrip}
+
+                    <div
+                        className="rounded-[22px] border border-neutral-200/90 bg-white px-4 py-3 shadow-[inset_0_0_0_1px_rgba(15,23,42,0.03)] transition-all focus-within:border-neutral-300 focus-within:shadow-[0_10px_24px_rgba(15,23,42,0.08)]"
+                        onClick={() => editorRef.current?.focus()}
+                    >
+                        <RichPromptEditor
+                            ref={editorRef}
+                            value={prompt}
+                            canvasItems={canvasItems}
+                            placeholder={getPlaceholderText()}
+                            disabled={isLoading}
+                            onTextChange={handleTextChange}
+                            onSubmit={handleGenerate}
+                            minHeightPx={120}
+                            maxHeightPx={220}
+                        />
+                    </div>
+
+                    <div className="mt-3 flex items-center justify-between gap-3 text-xs text-neutral-500">
+                        <div className="min-w-0 truncate">{bindingHint}</div>
+                        <button
+                            onClick={handleGenerate}
+                            disabled={isLoading || !prompt.trim()}
+                            aria-label={t('promptBar.generate')}
+                            title={t('promptBar.generate')}
+                            className="inline-flex h-11 min-w-[96px] items-center justify-center rounded-2xl px-4 text-sm font-semibold text-white shadow-[0_8px_20px_rgba(15,23,42,0.18)] transition-all hover:-translate-y-0.5 hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
+                            style={{ backgroundColor: 'var(--button-bg-color)' }}
+                        >
+                            {isLoading ? '...' : generationMode === 'video' ? '生成视频' : '生成内容'}
+                        </button>
+                    </div>
+
+                    {footerControls}
+                </div>
+
+                {(enhanceResult || enhanceError) && (
+                    <div className="mt-3 rounded-[22px] border border-neutral-200 bg-white/96 p-4 shadow-sm backdrop-blur-md">
+                        {enhanceError && <div className="mb-2 text-xs text-red-500">{enhanceError}</div>}
+                        {enhanceResult && (
+                            <>
+                                <div className="mb-1 text-xs font-medium text-neutral-500">AI 润色结果</div>
+                                <div className="mb-2 text-sm leading-relaxed text-neutral-900">{enhanceResult.enhancedPrompt}</div>
+                                {enhanceResult.negativePrompt && (
+                                    <div className="mb-2 text-xs text-neutral-600">
+                                        <span className="font-medium">负面词：</span>
+                                        {enhanceResult.negativePrompt}
+                                    </div>
+                                )}
+                                {enhanceResult.suggestions.length > 0 && (
+                                    <div className="mb-2 flex flex-wrap gap-1">
+                                        {enhanceResult.suggestions.map((item, idx) => (
+                                            <span key={`${item}-${idx}`} className="rounded-full bg-neutral-100 px-2 py-0.5 text-[11px] text-neutral-700">
+                                                {item}
+                                            </span>
+                                        ))}
+                                    </div>
+                                )}
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <button
+                                        onClick={handleApplyEnhancedPrompt}
+                                        className="rounded-full bg-neutral-900 px-2.5 py-1 text-xs text-white transition-colors hover:brightness-110"
+                                    >
+                                        采用
+                                    </button>
+                                    <button
+                                        onClick={() => navigator.clipboard?.writeText(enhanceResult.enhancedPrompt)}
+                                        className="rounded-full bg-neutral-100 px-2.5 py-1 text-xs text-neutral-800 transition-colors hover:bg-neutral-200"
+                                    >
+                                        复制
+                                    </button>
+                                </div>
+                            </>
+                        )}
+                    </div>
+                )}
+            </div>
+        );
+    }
 
     return (
         <div className="w-full transition-transform duration-300 ease-[cubic-bezier(0.23,1,0.32,1)]">
             <div
                 style={containerStyle}
-                className="flex items-center gap-2 p-2.5 border border-neutral-200/80 rounded-full shadow-[0_8px_30px_rgb(0,0,0,0.08)] bg-white/95 backdrop-blur-md"
+                className="rounded-[28px] bg-white/86 p-3 shadow-[0_18px_48px_rgba(15,23,42,0.14)] backdrop-blur-xl sm:p-4"
             >
-                {/* 1. 模式切换器：图片 vs 视频 */}
-                <div className="flex-shrink-0 flex items-center bg-neutral-100 rounded-full p-0.5">
-                    <button
-                        onClick={() => setGenerationMode('image')}
-                        className={`px-2.5 py-1 text-xs font-medium rounded-full transition-colors ${
-                            generationMode === 'image'
-                                ? 'bg-white text-neutral-900 shadow-sm'
-                                : 'text-neutral-600 hover:text-neutral-900'
-                        }`}
-                    >
-                        {t('promptBar.imageMode')}
-                    </button>
-                    <button
-                        onClick={() => setGenerationMode('video')}
-                        className={`px-2.5 py-1 text-xs font-medium rounded-full transition-colors ${
-                            generationMode === 'video'
-                                ? 'bg-white text-neutral-900 shadow-sm'
-                                : 'text-neutral-600 hover:text-neutral-900'
-                        }`}
-                    >
-                        {t('promptBar.videoMode')}
-                    </button>
-                </div>
+                {selectionStrip}
 
-                {/* 2. 宽高比选择器（仅视频模式） */}
-                {generationMode === 'video' && (
-                    <div className="flex-shrink-0 flex items-center bg-neutral-100 rounded-full p-0.5">
-                        <button
-                            onClick={() => setVideoAspectRatio('16:9')}
-                            title={t('promptBar.aspectRatioHorizontal')}
-                            className={`p-1 rounded-full transition-colors ${
-                                videoAspectRatio === '16:9'
-                                    ? 'bg-white text-neutral-900 shadow-sm'
-                                    : 'text-neutral-500 hover:text-neutral-900'
-                            }`}
+                <div className="flex items-end gap-2 sm:gap-3">
+                    <div className="min-w-0 flex-1">
+                        <div
+                            className="rounded-[20px] bg-neutral-50/90 px-3 py-2.5 shadow-[inset_0_0_0_1px_rgba(15,23,42,0.08)] transition-all focus-within:bg-white focus-within:shadow-[inset_0_0_0_1px_rgba(15,23,42,0.16),0_10px_24px_rgba(15,23,42,0.10)]"
+                            onClick={() => editorRef.current?.focus()}
                         >
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                <rect x="2" y="7" width="20" height="10" rx="2" ry="2" />
-                            </svg>
-                        </button>
-                        <button
-                            onClick={() => setVideoAspectRatio('9:16')}
-                            title={t('promptBar.aspectRatioVertical')}
-                            className={`p-1 rounded-full transition-colors ${
-                                videoAspectRatio === '9:16'
-                                    ? 'bg-white text-neutral-900 shadow-sm'
-                                    : 'text-neutral-500 hover:text-neutral-900'
-                            }`}
-                        >
-                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                <rect x="7" y="2" width="10" height="20" rx="2" ry="2" />
-                            </svg>
-                        </button>
+                            <RichPromptEditor
+                                ref={editorRef}
+                                value={prompt}
+                                canvasItems={canvasItems}
+                                placeholder={getPlaceholderText()}
+                                disabled={isLoading}
+                                onTextChange={handleTextChange}
+                                onSubmit={handleGenerate}
+                                minHeightPx={editorMinHeight}
+                                maxHeightPx={300}
+                            />
+                        </div>
                     </div>
-                )}
-
-                {/* 2.5 模型快捷切换 */}
-                {generationMode === 'image' && imageModelOptions.length > 0 && (
-                    <select
-                        value={selectedImageModel}
-                        onChange={(e) => onImageModelChange?.(e.target.value)}
-                        className="flex-shrink-0 text-xs bg-neutral-100 rounded-full px-2.5 py-1.5 text-neutral-700 border border-transparent focus:outline-none"
-                        title="图片模型"
+                    <button
+                        onClick={handleGenerate}
+                        disabled={isLoading || !prompt.trim()}
+                        aria-label={t('promptBar.generate')}
+                        title={t('promptBar.generate')}
+                        className="h-11 min-w-11 rounded-2xl px-4 text-sm font-semibold text-white shadow-[0_8px_20px_rgba(15,23,42,0.22)] transition-all hover:-translate-y-0.5 hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
+                        style={{ backgroundColor: 'var(--button-bg-color)' }}
                     >
-                        {imageModelOptions.map(model => (
-                            <option key={model} value={model}>{model}</option>
-                        ))}
-                    </select>
-                )}
-                {generationMode === 'video' && videoModelOptions.length > 0 && (
-                    <select
-                        value={selectedVideoModel}
-                        onChange={(e) => onVideoModelChange?.(e.target.value)}
-                        className="flex-shrink-0 text-xs bg-neutral-100 rounded-full px-2.5 py-1.5 text-neutral-700 border border-transparent focus:outline-none"
-                        title="视频模型"
-                    >
-                        {videoModelOptions.map(model => (
-                            <option key={model} value={model}>{model}</option>
-                        ))}
-                    </select>
-                )}
-
-                {/* 2.6 Agent controls */}
-                {onEnhancePrompt && (
-                    <>
-                        <select
-                            value={enhanceMode}
-                            onChange={(e) => setEnhanceMode(e.target.value as PromptEnhanceMode)}
-                            className="flex-shrink-0 text-xs bg-neutral-100 rounded-full px-2.5 py-1.5 text-neutral-700 border border-transparent focus:outline-none"
-                            title="润色模式"
-                        >
-                            <option value="smart">智能润色</option>
-                            <option value="style">风格化</option>
-                            <option value="precise">精准优化</option>
-                            <option value="translate">多语言互转</option>
-                        </select>
-                        {enhanceMode === 'style' && (
-                            <select
-                                value={stylePreset}
-                                onChange={(e) => setStylePreset(e.target.value)}
-                                className="flex-shrink-0 text-xs bg-neutral-100 rounded-full px-2.5 py-1.5 text-neutral-700 border border-transparent focus:outline-none"
-                                title="风格预设"
-                            >
-                                <option value="cinematic">电影感</option>
-                                <option value="ink">水墨</option>
-                                <option value="ghibli">吉卜力</option>
-                                <option value="cyberpunk">赛博朋克</option>
-                                <option value="pixar3d">3D 皮克斯</option>
-                            </select>
-                        )}
-                        <button
-                            onClick={handleEnhancePrompt}
-                            disabled={isEnhancingPrompt || !prompt.trim()}
-                            className="flex-shrink-0 px-3 py-1.5 text-xs rounded-full bg-neutral-100 text-neutral-800 hover:bg-neutral-200 disabled:opacity-40 transition-colors"
-                            title="AI 提示词润色"
-                        >
-                            {isEnhancingPrompt ? '润色中...' : '✨ AI润色'}
-                        </button>
-                    </>
-                )}
-
-                {onLockCharacterFromSelection && (
-                    <>
-                        <button
-                            onClick={() => onLockCharacterFromSelection()}
-                            disabled={!canLockCharacter}
-                            className="flex-shrink-0 px-3 py-1.5 text-xs rounded-full bg-neutral-100 text-neutral-800 hover:bg-neutral-200 disabled:opacity-40 transition-colors"
-                            title="从当前选中图片锁定角色"
-                        >
-                            🔒 锁定角色
-                        </button>
-                        {characterLocks.length > 0 && (
-                            <select
-                                value={activeCharacterLockId ?? ''}
-                                onChange={(e) => onSetActiveCharacterLock?.(e.target.value || null)}
-                                className="flex-shrink-0 text-xs bg-neutral-100 rounded-full px-2.5 py-1.5 text-neutral-700 border border-transparent focus:outline-none"
-                                title="角色一致性锁定"
-                            >
-                                <option value="">不使用角色锁定</option>
-                                {characterLocks.map(lock => (
-                                    <option key={lock.id} value={lock.id}>{lock.name}</option>
-                                ))}
-                            </select>
-                        )}
-                    </>
-                )}
-
-                {/* 3. 快捷提示词 */}
-                <QuickPrompts
-                    t={t}
-                    setPrompt={handleQuickPrompt}
-                    disabled={!isSelectionActive || isLoading}
-                    userEffects={userEffects}
-                    onDeleteUserEffect={onDeleteUserEffect}
-                />
-
-                {/* 4. 富文本编辑器（带 @ 元素引用） */}
-                <div
-                    className="flex-grow flex items-center min-w-0 cursor-text"
-                    onClick={() => editorRef.current?.focus()}
-                    style={{ minHeight: '28px' }}
-                >
-                    <RichPromptEditor
-                        ref={editorRef}
-                        canvasItems={canvasItems}
-                        placeholder={getPlaceholderText()}
-                        disabled={isLoading}
-                        onTextChange={handleTextChange}
-                        onSubmit={handleGenerate}
-                    />
+                        {isLoading ? '...' : generationMode === 'video' ? 'Video' : 'Run'}
+                    </button>
                 </div>
 
-                {/* 5. @ 提示标签（引导用户使用） */}
-                {canvasItems.length > 0 && !prompt.trim() && (
-                    <span
-                        className="flex-shrink-0 text-xs text-indigo-400 font-medium select-none"
-                        title={`输入 @ 可引用 ${canvasItems.length} 个画布元素`}
-                        style={{ whiteSpace: 'nowrap' }}
-                    >
-                        @
-                    </span>
-                )}
-
-                {/* 6. 保存效果按钮 */}
-                {prompt.trim() && !isLoading && (
-                    <button
-                        onClick={handleSaveEffect}
-                        title={t('myEffects.saveEffectTooltip')}
-                        className="flex-shrink-0 w-8 h-8 flex items-center justify-center text-neutral-500 rounded-full hover:bg-neutral-100 transition-colors duration-200"
-                    >
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z" />
-                        </svg>
-                    </button>
-                )}
-
-                {/* 7. 生成按钮 */}
-                <button
-                    onClick={handleGenerate}
-                    disabled={isLoading || !prompt.trim()}
-                    aria-label={t('promptBar.generate')}
-                    title={t('promptBar.generate')}
-                    className="flex-shrink-0 w-9 h-9 flex items-center justify-center text-white rounded-full disabled:opacity-50 disabled:cursor-not-allowed hover:brightness-110 transition-all duration-200"
-                    style={{ backgroundColor: 'var(--button-bg-color)' }}
-                >
-                    {isLoading ? (
-                        <svg className="animate-spin h-4 w-4" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
-                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                        </svg>
-                    ) : generationMode === 'image' ? (
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="M5 12h14" /><path d="m12 5 7 7-7 7" />
-                        </svg>
-                    ) : (
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                            <path d="m22 8-6 4 6 4V8Z" /><rect x="2" y="6" width="14" height="12" rx="2" ry="2" />
-                        </svg>
-                    )}
-                </button>
+                <div className="mt-2 text-xs text-neutral-500">{bindingHint}</div>
+                {footerControls}
             </div>
 
             {(enhanceResult || enhanceError) && (
-                <div className="mt-2 p-3 rounded-2xl border border-neutral-200 bg-white/95 backdrop-blur-md shadow-sm">
-                    {enhanceError && (
-                        <div className="text-xs text-red-500 mb-2">{enhanceError}</div>
-                    )}
+                <div className="mt-2 rounded-2xl border border-neutral-200 bg-white/95 p-3 shadow-sm backdrop-blur-md">
+                    {enhanceError && <div className="mb-2 text-xs text-red-500">{enhanceError}</div>}
                     {enhanceResult && (
                         <>
-                            <div className="text-xs text-neutral-500 mb-1">AI 润色结果</div>
-                            <div className="text-sm text-neutral-900 leading-relaxed mb-2">{enhanceResult.enhancedPrompt}</div>
+                            <div className="mb-1 text-xs text-neutral-500">AI 润色结果</div>
+                            <div className="mb-2 text-sm leading-relaxed text-neutral-900">{enhanceResult.enhancedPrompt}</div>
                             {enhanceResult.negativePrompt && (
-                                <div className="text-xs text-neutral-600 mb-2">
+                                <div className="mb-2 text-xs text-neutral-600">
                                     <span className="font-medium">负面词：</span>
                                     {enhanceResult.negativePrompt}
                                 </div>
                             )}
                             {enhanceResult.suggestions.length > 0 && (
-                                <div className="flex flex-wrap gap-1 mb-2">
+                                <div className="mb-2 flex flex-wrap gap-1">
                                     {enhanceResult.suggestions.map((item, idx) => (
-                                        <span key={`${item}-${idx}`} className="text-[11px] px-2 py-0.5 rounded-full bg-neutral-100 text-neutral-700">
+                                        <span key={`${item}-${idx}`} className="rounded-full bg-neutral-100 px-2 py-0.5 text-[11px] text-neutral-700">
                                             {item}
                                         </span>
                                     ))}
                                 </div>
                             )}
-                            <div className="flex items-center gap-2">
+                            <div className="flex flex-wrap items-center gap-2">
                                 <button
                                     onClick={handleApplyEnhancedPrompt}
-                                    className="text-xs px-2.5 py-1 rounded-full bg-neutral-900 text-white hover:brightness-110 transition-colors"
+                                    className="rounded-full bg-neutral-900 px-2.5 py-1 text-xs text-white transition-colors hover:brightness-110"
                                 >
-                                    ✅ 采用
+                                    采用
                                 </button>
                                 <button
                                     onClick={() => navigator.clipboard?.writeText(enhanceResult.enhancedPrompt)}
-                                    className="text-xs px-2.5 py-1 rounded-full bg-neutral-100 text-neutral-800 hover:bg-neutral-200 transition-colors"
+                                    className="rounded-full bg-neutral-100 px-2.5 py-1 text-xs text-neutral-800 transition-colors hover:bg-neutral-200"
                                 >
-                                    📋 复制
+                                    复制
                                 </button>
                                 <button
                                     onClick={handleEnhancePrompt}
                                     disabled={isEnhancingPrompt || !prompt.trim()}
-                                    className="text-xs px-2.5 py-1 rounded-full bg-neutral-100 text-neutral-800 hover:bg-neutral-200 disabled:opacity-40 transition-colors"
+                                    className="rounded-full bg-neutral-100 px-2.5 py-1 text-xs text-neutral-800 transition-colors hover:bg-neutral-200 disabled:opacity-40"
                                 >
-                                    🔄 再润色
+                                    再润色
                                 </button>
                             </div>
                         </>
