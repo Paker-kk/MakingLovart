@@ -88,6 +88,8 @@ export const RightPanel: React.FC<RightPanelProps> = ({
     const editInputRef = useRef<HTMLInputElement>(null);
     const promptInputRef = useRef<HTMLTextAreaElement>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const uploadDragDepthRef = useRef(0);
+    const [isUploadDragActive, setIsUploadDragActive] = useState(false);
 
     const items = useMemo(() => library[category], [category, library]);
 
@@ -272,12 +274,54 @@ export const RightPanel: React.FC<RightPanelProps> = ({
                 <div className="min-h-0 flex-1 overflow-hidden">
                     {activeTab === 'generate' && (
                         <div className="flex h-full min-h-0 flex-col gap-4 p-4">
-                            <div className="rounded-[28px] border border-neutral-200 bg-neutral-50 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)]">
+                            <div
+                                className={`relative rounded-[28px] border p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] transition-all duration-200 ${
+                                    isUploadDragActive
+                                        ? 'scale-[1.01] border-blue-300 bg-blue-50 shadow-[0_18px_40px_rgba(59,130,246,0.12)]'
+                                        : 'border-neutral-200 bg-neutral-50'
+                                }`}
+                                onDragEnter={event => {
+                                    if (!Array.from(event.dataTransfer.items).some(item => item.type.startsWith('image/'))) return;
+                                    event.preventDefault();
+                                    uploadDragDepthRef.current += 1;
+                                    setIsUploadDragActive(true);
+                                }}
+                                onDragOver={event => {
+                                    if (!Array.from(event.dataTransfer.items).some(item => item.type.startsWith('image/'))) return;
+                                    event.preventDefault();
+                                    event.dataTransfer.dropEffect = 'copy';
+                                }}
+                                onDragLeave={event => {
+                                    if (!Array.from(event.dataTransfer.items).some(item => item.type.startsWith('image/'))) return;
+                                    event.preventDefault();
+                                    uploadDragDepthRef.current = Math.max(0, uploadDragDepthRef.current - 1);
+                                    if (uploadDragDepthRef.current === 0) {
+                                        setIsUploadDragActive(false);
+                                    }
+                                }}
+                                onDrop={event => {
+                                    event.preventDefault();
+                                    uploadDragDepthRef.current = 0;
+                                    setIsUploadDragActive(false);
+                                    if (event.dataTransfer.files?.length) {
+                                        onAddAttachments(event.dataTransfer.files);
+                                    }
+                                }}
+                            >
+                                {isUploadDragActive && (
+                                    <div className="pointer-events-none absolute inset-3 z-10 rounded-[22px] border border-dashed border-blue-300 bg-blue-50/90 backdrop-blur-sm">
+                                        <div className="flex h-full items-center justify-center">
+                                            <div className="rounded-full bg-white px-4 py-2 text-sm font-medium text-neutral-800 shadow-sm">
+                                                松手上传参考图
+                                            </div>
+                                        </div>
+                                    </div>
+                                )}
                                 <div className="flex items-start gap-3">
                                     <button
                                         type="button"
                                         onClick={() => fileInputRef.current?.click()}
-                                        className="flex h-[84px] w-[66px] shrink-0 flex-col items-center justify-center rounded-[20px] border border-neutral-200 bg-white text-neutral-500 shadow-sm transition-colors hover:text-neutral-800"
+                                        className="flex h-[84px] w-[66px] shrink-0 flex-col items-center justify-center rounded-[20px] border border-neutral-200 bg-white text-neutral-500 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:text-neutral-800"
                                         title="导入参考图"
                                     >
                                         <span className="text-2xl leading-none">+</span>
@@ -312,7 +356,7 @@ export const RightPanel: React.FC<RightPanelProps> = ({
                                         {attachments.map(attachment => (
                                             <div
                                                 key={attachment.id}
-                                                className="group relative h-16 w-16 shrink-0 overflow-hidden rounded-2xl border border-neutral-200 bg-white"
+                                                className="group relative h-16 w-16 shrink-0 overflow-hidden rounded-2xl border border-neutral-200 bg-white transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md"
                                             >
                                                 <img
                                                     src={attachment.href}

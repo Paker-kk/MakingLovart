@@ -371,6 +371,8 @@ const DEFAULT_MODEL_PREFS: ModelPreference = {
 const TEXT_MODEL_OPTIONS = ['gemini-2.5-pro', 'gpt-4o-mini', 'claude-3-5-sonnet', 'qwen-max'];
 const IMAGE_MODEL_OPTIONS = ['gemini-2.5-flash-image-preview', 'imagen-4.0-generate-001', 'dall-e-3', 'sdxl'];
 const VIDEO_MODEL_OPTIONS = ['veo-2.0-generate-001'];
+const BOARDS_STORAGE_KEY = 'boards.v1';
+const ACTIVE_BOARD_STORAGE_KEY = 'boards.activeId.v1';
 
 const THEME_PALETTES = {
     light: {
@@ -429,12 +431,34 @@ const normalizeApiKeyEntry = (item: Partial<UserApiKey>): UserApiKey | null => {
 const hasCapabilityOverlap = (left: AICapability[], right: AICapability[]) =>
     left.some(capability => right.includes(capability));
 
-const App: React.FC = () => {
-    const [boards, setBoards] = useState<Board[]>(() => {
-        // TODO: Load from localStorage
+const loadBoardsFromStorage = (): Board[] => {
+    try {
+        const raw = localStorage.getItem(BOARDS_STORAGE_KEY);
+        const parsed = raw ? JSON.parse(raw) : null;
+        if (!Array.isArray(parsed) || parsed.length === 0) {
+            return [createNewBoard('Board 1')];
+        }
+
+        const boards = parsed.filter((board): board is Board => {
+            return !!board && typeof board.id === 'string' && typeof board.name === 'string' && Array.isArray(board.elements);
+        });
+
+        return boards.length > 0 ? boards : [createNewBoard('Board 1')];
+    } catch {
         return [createNewBoard('Board 1')];
+    }
+};
+
+const App: React.FC = () => {
+    const [boards, setBoards] = useState<Board[]>(() => loadBoardsFromStorage());
+    const [activeBoardId, setActiveBoardId] = useState<string>(() => {
+        try {
+            const saved = localStorage.getItem(ACTIVE_BOARD_STORAGE_KEY);
+            return saved || '';
+        } catch {
+            return '';
+        }
     });
-    const [activeBoardId, setActiveBoardId] = useState<string>(boards[0].id);
 
     const activeBoard = useMemo(() => {
         return boards.find(b => b.id === activeBoardId) ?? boards[0];
@@ -447,6 +471,7 @@ const App: React.FC = () => {
     const [selectedElementIds, setSelectedElementIds] = useState<string[]>([]);
     const [selectionBox, setSelectionBox] = useState<Rect | null>(null);
     const [prompt, setPrompt] = useState('');
+    const [promptAttachments, setPromptAttachments] = useState<ChatAttachment[]>([]);
     const [chatAttachments, setChatAttachments] = useState<ChatAttachment[]>([]);
     // @ 瀵洜鏁ら崗鍐 id 閸掓銆冮敍鍫㈡暠 PromptBar 閸︺劎鏁ら幋椋庡仯閸戣崵鏁撻幋鎰閸氬本顒炴潻鍥ㄦ降閿?
     const [mentionedElementIds, setMentionedElementIds] = useState<string[]>([]);
@@ -481,6 +506,15 @@ const App: React.FC = () => {
     useEffect(() => {
         localStorage.setItem('inspirationPanelMinimized', isInspirationMinimized.toString());
     }, [isInspirationMinimized]);
+
+    useEffect(() => {
+        localStorage.setItem(BOARDS_STORAGE_KEY, JSON.stringify(boards));
+    }, [boards]);
+
+    useEffect(() => {
+        if (!activeBoardId) return;
+        localStorage.setItem(ACTIVE_BOARD_STORAGE_KEY, activeBoardId);
+    }, [activeBoardId]);
     
     useEffect(() => {
         if (typeof window === 'undefined') return;
@@ -817,6 +851,14 @@ const App: React.FC = () => {
         });
     }, []);
 
+    const addPromptAttachment = useCallback((payload: Omit<ChatAttachment, 'id'>) => {
+        setPromptAttachments(prev => {
+            const exists = prev.some(item => item.href === payload.href);
+            if (exists) return prev;
+            return [...prev, { ...payload, id: generateId() }];
+        });
+    }, []);
+
     const handleAddAttachmentFromCanvas = useCallback((payload: { id: string; name?: string; href: string; mimeType: string }) => {
         addChatAttachment({
             name: payload.name || `Canvas ${payload.id.slice(-4)}`,
@@ -845,8 +887,31 @@ const App: React.FC = () => {
         }
     }, [addChatAttachment]);
 
+    const handleAddPromptAttachmentFiles = useCallback(async (files: FileList | File[]) => {
+        const list = Array.from(files).filter(file => file.type.startsWith('image/'));
+        if (list.length === 0) return;
+        try {
+            const dataList = await Promise.all(list.map(fileToDataUrl));
+            dataList.forEach((item, index) => {
+                addPromptAttachment({
+                    name: list[index].name || `Upload ${index + 1}`,
+                    href: item.dataUrl,
+                    mimeType: item.mimeType,
+                    source: 'upload',
+                });
+            });
+        } catch (error) {
+            const message = error instanceof Error ? error.message : 'Attachment upload failed.';
+            setError(message);
+        }
+    }, [addPromptAttachment]);
+
     const handleRemoveChatAttachment = useCallback((id: string) => {
         setChatAttachments(prev => prev.filter(item => item.id !== id));
+    }, []);
+
+    const handleRemovePromptAttachment = useCallback((id: string) => {
+        setPromptAttachments(prev => prev.filter(item => item.id !== id));
     }, []);
 
     const t = useCallback((key: string, ...args: any[]): any => {
@@ -1949,7 +2014,7 @@ const App: React.FC = () => {
     }, [editingElement?.text, setElements]);
 
 
-    const handleGenerate = async (promptOverride?: string) => {
+    const handleGenerate = async (promptOverride?: string, source: 'prompt' | 'right' = 'prompt') => {
         const rawPrompt = (promptOverride ?? prompt).trim();
         if (!rawPrompt) {
             setError('Please enter a prompt.');
@@ -1970,7 +2035,8 @@ const App: React.FC = () => {
         const characterReferenceImages = activeCharacterLock
             ? [{ href: activeCharacterLock.referenceImage, mimeType: getMimeFromDataUrl(activeCharacterLock.referenceImage) }]
             : [];
-        const attachmentReferenceImages = chatAttachments.map(item => ({ href: item.href, mimeType: item.mimeType }));
+        const activeAttachments = source === 'right' ? chatAttachments : promptAttachments;
+        const attachmentReferenceImages = activeAttachments.map(item => ({ href: item.href, mimeType: item.mimeType }));
         const imageProvider = inferProviderFromModel(modelPreference.imageModel);
         const videoProvider = inferProviderFromModel(modelPreference.videoModel);
         const supportsReferenceEditing = imageProvider === 'google';
@@ -1983,7 +2049,7 @@ const App: React.FC = () => {
                 }
                 const selectedElements = elements.filter(el => selectedElementIds.includes(el.id));
                 const imageElement = selectedElements.find(el => el.type === 'image') as ImageElement | undefined;
-                const attachmentImage = chatAttachments[0];
+                const attachmentImage = activeAttachments[0];
                 const baseVideoReference = imageElement
                     ? { href: imageElement.href, mimeType: imageElement.mimeType }
                     : attachmentImage
@@ -2709,7 +2775,7 @@ const App: React.FC = () => {
                 onRename={(cat, id, name) => setAssetLibrary(prev => renameAsset(prev, cat, id, name))}
                 onGenerate={(nextPrompt) => {
                     setPrompt(nextPrompt);
-                    handleGenerate(nextPrompt);
+                    handleGenerate(nextPrompt, 'right');
                 }}
                 onAddAttachments={handleAddAttachmentFiles}
                 onRemoveAttachment={handleRemoveChatAttachment}
@@ -3173,7 +3239,7 @@ const App: React.FC = () => {
                             theme={resolvedTheme}
                             prompt={prompt} 
                             setPrompt={setPrompt} 
-                            onGenerate={handleGenerate} 
+                            onGenerate={() => handleGenerate(undefined, 'prompt')} 
                             isLoading={isLoading} 
                             isSelectionActive={isSelectionActive} 
                             selectedElementCount={selectedElementIds.length}
@@ -3194,6 +3260,9 @@ const App: React.FC = () => {
                             onImageModelChange={(model) => setModelPreference(prev => ({ ...prev, imageModel: model }))}
                             onVideoModelChange={(model) => setModelPreference(prev => ({ ...prev, videoModel: model }))}
                             canvasElements={elements}
+                            attachments={promptAttachments}
+                            onAddAttachments={handleAddPromptAttachmentFiles}
+                            onRemoveAttachment={handleRemovePromptAttachment}
                             onMentionedElementIds={setMentionedElementIds}
                             onEnhancePrompt={handleEnhancePrompt}
                             isEnhancingPrompt={isEnhancingPrompt}

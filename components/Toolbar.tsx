@@ -26,9 +26,9 @@ interface ToolbarProps {
 }
 
 const baseButtonClass =
-    'flex h-12 w-12 items-center justify-center rounded-2xl border border-transparent text-neutral-500 transition hover:bg-white hover:text-neutral-900';
+    'flex h-10 w-10 items-center justify-center rounded-[18px] border border-transparent text-neutral-500 transition hover:bg-white hover:text-neutral-900';
 
-const activeButtonClass = 'border-neutral-200 bg-white text-neutral-900 shadow-[0_12px_26px_rgba(15,23,42,0.12)]';
+const activeButtonClass = 'border-neutral-200 bg-white text-neutral-900 shadow-[0_10px_20px_rgba(15,23,42,0.10)]';
 
 const panelPosition = {
     leftClosed: 16,
@@ -89,7 +89,7 @@ const ToolGroupButton: React.FC<{
                 theme={theme}
             />
             {open && (
-                <div className={`absolute left-full top-0 ml-3 flex flex-col gap-2 rounded-[24px] border p-2 shadow-[0_24px_50px_rgba(15,23,42,0.16)] ${
+                <div className={`absolute left-full top-0 ml-2.5 flex flex-col gap-1.5 rounded-[22px] border p-1.5 shadow-[0_20px_44px_rgba(15,23,42,0.16)] ${
                     theme === 'dark' ? 'border-[#2A3140] bg-[#12151B]' : 'border-neutral-200 bg-white'
                 }`}>
                     {items.map(item => (
@@ -142,7 +142,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     }, [leftPosition, onLeftChange]);
 
     useEffect(() => {
-        onHeightChange?.(520);
+        onHeightChange?.(452);
     }, [onHeightChange]);
 
     const shapeTools = useMemo<Array<{ id: Tool; label: string; icon: React.ReactNode }>>(
@@ -205,7 +205,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     if (isCropping) {
         return (
             <div
-                className="absolute top-4 z-[50] flex w-52 flex-col gap-3 rounded-[24px] border border-neutral-200 bg-white p-4 shadow-[0_24px_60px_rgba(15,23,42,0.16)]"
+                className="absolute top-3 z-[50] flex w-52 flex-col gap-3 rounded-[24px] border border-neutral-200 bg-white p-4 shadow-[0_24px_60px_rgba(15,23,42,0.16)]"
                 style={{ left: `${leftPosition}px`, transition: 'left 0.35s cubic-bezier(0.4, 0, 0.2, 1)' }}
             >
                 <div className="text-sm font-semibold text-neutral-900">{t('toolbar.crop.title')}</div>
@@ -231,7 +231,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
 
     return (
         <div
-            className={`absolute top-4 z-[40] flex flex-col items-center gap-2 rounded-[28px] border px-2 py-3 shadow-[0_24px_60px_rgba(15,23,42,0.28)] ${
+            className={`absolute top-3 z-[40] flex flex-col items-center gap-1.5 rounded-[24px] border px-1.5 py-2.5 shadow-[0_20px_48px_rgba(15,23,42,0.24)] ${
                 isDark ? 'border-[#2A3140] bg-[#12151B] text-white' : 'border-neutral-200 bg-white text-[#111827]'
             }`}
             style={{
@@ -247,7 +247,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                 theme={theme}
             />
 
-            <div className={`h-px w-8 ${isDark ? 'bg-white/10' : 'bg-neutral-200'}`} />
+            <div className={`h-px w-7 ${isDark ? 'bg-white/10' : 'bg-neutral-200'}`} />
 
             <ToolButton
                 label={t('toolbar.select')}
@@ -258,7 +258,14 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             />
             <ToolButton
                 label={t('toolbar.pan')}
-                icon={<svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2v20" /><path d="M2 12h20" /><path d="m5 5-3 3 3 3" /><path d="m19 5 3 3-3 3" /></svg>}
+                icon={
+                    <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M6 12V6a2 2 0 1 1 4 0v6" />
+                        <path d="M10 12V5a2 2 0 1 1 4 0v7" />
+                        <path d="M14 12V7a2 2 0 1 1 4 0v7" />
+                        <path d="M18 12v-1a2 2 0 1 1 4 0v3a7 7 0 0 1-7 7h-2a7 7 0 0 1-7-7v-2a2 2 0 1 1 4 0" />
+                    </svg>
+                }
                 active={activeTool === 'pan'}
                 onClick={() => setActiveTool('pan')}
                 theme={theme}
@@ -287,7 +294,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                 theme={theme}
             />
 
-            <div className={`my-1 h-px w-8 ${isDark ? 'bg-white/10' : 'bg-neutral-200'}`} />
+            <div className={`my-0.5 h-px w-7 ${isDark ? 'bg-white/10' : 'bg-neutral-200'}`} />
 
             <input
                 type="color"
@@ -295,7 +302,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                 title={t('toolbar.strokeColor')}
                 value={drawingOptions.strokeColor}
                 onChange={(event) => setDrawingOptions({ ...drawingOptions, strokeColor: event.target.value })}
-                className={`h-10 w-10 cursor-pointer rounded-2xl border bg-transparent p-0 ${isDark ? 'border-white/10' : 'border-neutral-200'}`}
+                className={`h-9 w-9 cursor-pointer rounded-[16px] border bg-transparent p-0 ${isDark ? 'border-white/10' : 'border-neutral-200'}`}
             />
             <input
                 type="range"
@@ -305,11 +312,11 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                 title={t('toolbar.strokeWidth')}
                 value={drawingOptions.strokeWidth}
                 onChange={(event) => setDrawingOptions({ ...drawingOptions, strokeWidth: Number(event.target.value) })}
-                className="h-24 w-10 cursor-pointer appearance-none bg-transparent [writing-mode:vertical-lr]"
+                className="h-20 w-9 cursor-pointer appearance-none bg-transparent [writing-mode:vertical-lr]"
             />
             <span className="text-xs text-white/60">{drawingOptions.strokeWidth}</span>
 
-            <div className={`my-1 h-px w-8 ${isDark ? 'bg-white/10' : 'bg-neutral-200'}`} />
+            <div className={`my-0.5 h-px w-7 ${isDark ? 'bg-white/10' : 'bg-neutral-200'}`} />
 
             <input
                 ref={fileInputRef}
@@ -345,7 +352,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                 theme={theme}
             />
 
-            <div className={`my-1 h-px w-8 ${isDark ? 'bg-white/10' : 'bg-neutral-200'}`} />
+            <div className={`my-0.5 h-px w-7 ${isDark ? 'bg-white/10' : 'bg-neutral-200'}`} />
 
             <ToolButton
                 label={t('toolbar.undo')}
