@@ -152,6 +152,10 @@ export interface UserApiKey {
   name?: string;
   isDefault?: boolean;
   status?: 'unknown' | 'ok' | 'error';
+  /** 用户为这个 Key 自定义的可调用模型列表 */
+  customModels?: string[];
+  /** 这些自定义模型中用户设定的默认模型 */
+  defaultModel?: string;
   createdAt: number;
   updatedAt: number;
 }

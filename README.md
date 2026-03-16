@@ -25,7 +25,7 @@
   <img src="https://img.shields.io/badge/TypeScript-5.8-3178C6?logo=typescript&logoColor=white" alt="TypeScript" />
   <img src="https://img.shields.io/badge/Vite-6-646CFF?logo=vite&logoColor=white" alt="Vite 6" />
   <img src="https://img.shields.io/badge/Gemini-2.5-4285F4?logo=google&logoColor=white" alt="Gemini" />
-  <img src="https://img.shields.io/badge/License-MIT-green.svg" alt="MIT License" />
+  <img src="https://img.shields.io/badge/License-Apache_2.0-blue.svg" alt="Apache 2.0 License" />
   <img src="https://img.shields.io/badge/Docker-Ready-2496ED?logo=docker&logoColor=white" alt="Docker" />
 </p>
 
@@ -219,11 +219,26 @@ VITE_GEMINI_API_KEY=your_gemini_api_key_here
 
 ---
 
-## 📄 License
+## � Acknowledgments
 
-本项目基于 [MIT License](./LICENSE) 开源。
+本项目受到以下优秀项目的启发：
 
-Copyright © 2025 Making Team
+- **[BananaPod](https://github.com/ZHO-ZHO-ZHO/BananaPod)** — AI 视觉智能体
+- **[LOVART](https://lovart.ai)** — AI 创意设计平台
+
+---
+
+## ⭐ Star
+
+如果这个项目对你有帮助，**欢迎给我一个 Star** ⭐，谢谢！这对我真的很重要！
+
+[![Star History Chart](https://api.star-history.com/svg?repos=Paker-kk/MakingLovart&type=Date)](https://star-history.com/#Paker-kk/MakingLovart&Date)
+
+---
+
+## �📄 License
+
+本项目基于 [Apache License 2.0](./LICENSE) 开源。
 
 ---
 
