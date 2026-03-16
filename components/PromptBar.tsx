@@ -123,9 +123,32 @@ export const PromptBar: React.FC<PromptBarProps> = ({
     const [enhanceResult, setEnhanceResult] = useState<PromptEnhanceResult | null>(null);
     const [enhanceError, setEnhanceError] = useState<string | null>(null);
 
+<<<<<<< Updated upstream
     const canvasItems = useMemo<MentionItem[]>(
         () => canvasElements.filter(el => el.isVisible !== false).map(elementToMentionItem),
         [canvasElements]
+=======
+    const triggerClass = `inline-flex h-9 items-center gap-1.5 rounded-full border px-3 text-xs font-medium transition ${
+        isDark ? 'border-[#2A3140] bg-[#1B2029] text-[#D0D5DD] hover:bg-[#252C39]' : 'border-[#E5E7EB] bg-[#F5F7FA] text-[#344054] hover:border-[#D0D5DD] hover:bg-white'
+    }`;
+    const activeTriggerClass = isDark ? 'border-[#4B5B78] bg-[#202734] text-white shadow-sm' : 'border-[#D0D5DD] bg-white text-[#111827] shadow-sm';
+    const popoverCardClass = `absolute bottom-full left-0 z-[80] mb-3 min-w-[240px] rounded-[22px] border p-2 shadow-[0_26px_60px_rgba(15,23,42,0.16)] ${
+        isDark ? 'border-[#2A3140] bg-[#161A22]' : 'border-[#E5E7EB] bg-white'
+    }`;
+    const shellClass = isDark ? 'border-[#2A3140] bg-[#12151B] shadow-[0_24px_60px_rgba(0,0,0,0.28)]' : 'border-[#E4E7EC] bg-white shadow-[0_24px_60px_rgba(15,23,42,0.12)]';
+    const textareaClass = isDark ? 'min-h-[48px] max-h-[160px] w-full resize-none border-none bg-transparent px-0 py-0 text-[15px] leading-6 text-[#F8FAFC] outline-none placeholder:text-[#667085]' : 'min-h-[48px] max-h-[160px] w-full resize-none border-none bg-transparent px-0 py-0 text-[15px] leading-6 text-[#111827] outline-none placeholder:text-[#C2CAD7]';
+
+    const mentionOptions = useMemo<MentionOption[]>(() => canvasElements.filter(element => element.isVisible !== false).map(element => ({
+        id: element.id,
+        label: getElementLabel(element),
+        element,
+    })), [canvasElements]);
+
+    const mentionMap = useMemo(() => new Map(mentionOptions.map(item => [item.id, item])), [mentionOptions]);
+    const selectedMentionItems = useMemo(
+        () => selectedMentionIds.map(id => mentionMap.get(id)).filter((item): item is MentionOption => !!item),
+        [mentionMap, selectedMentionIds]
+>>>>>>> Stashed changes
     );
 
     const selectedMentionItems = useMemo<MentionItem[]>(
@@ -133,10 +156,22 @@ export const PromptBar: React.FC<PromptBarProps> = ({
         [selectedCanvasElements]
     );
 
+<<<<<<< Updated upstream
     const inferredLineCount = useMemo(() => {
         const lines = prompt.split(/\r?\n/);
         const wrappedLines = lines.reduce((total, line) => total + Math.max(1, Math.ceil(line.length / 42)), 0);
         return Math.min(12, Math.max(2, wrappedLines));
+=======
+        document.addEventListener('mousedown', handleOutsideClick);
+        return () => document.removeEventListener('mousedown', handleOutsideClick);
+    }, []);
+
+    useEffect(() => {
+        const textarea = textareaRef.current;
+        if (!textarea) return;
+        textarea.style.height = '0px';
+        textarea.style.height = `${Math.min(160, Math.max(48, textarea.scrollHeight))}px`;
+>>>>>>> Stashed changes
     }, [prompt]);
 
     const editorMinHeight = Math.max(56, Math.min(220, inferredLineCount * 24 + 14));
@@ -169,7 +204,27 @@ export const PromptBar: React.FC<PromptBarProps> = ({
         onGenerate();
     }, [isLoading, onGenerate, prompt, syncMentionIds]);
 
+<<<<<<< Updated upstream
     const handleEnhancePrompt = useCallback(async () => {
+=======
+    const insertMention = useCallback((item: MentionOption) => {
+        if (!mentionState || !textareaRef.current) return;
+        // Insert @label inline into the prompt text so user sees "@图片 abc1" in the text
+        const tag = `@${item.label} `;
+        const nextPrompt = `${prompt.slice(0, mentionState.start)}${tag}${prompt.slice(mentionState.end)}`;
+        setPrompt(nextPrompt);
+        setSelectedMentionIds(prev => (prev.includes(item.id) ? prev : [...prev, item.id]));
+        setMentionState(null);
+
+        const cursorPos = mentionState.start + tag.length;
+        requestAnimationFrame(() => {
+            textareaRef.current?.focus();
+            textareaRef.current?.setSelectionRange(cursorPos, cursorPos);
+        });
+    }, [mentionState, prompt, setPrompt]);
+
+    const handleEnhance = useCallback(async () => {
+>>>>>>> Stashed changes
         if (!prompt.trim() || !onEnhancePrompt || isEnhancingPrompt) return;
         setEnhanceError(null);
         try {
@@ -220,22 +275,128 @@ export const PromptBar: React.FC<PromptBarProps> = ({
         }, 0);
     }, [selectedMentionItems, syncMentionIds]);
 
+<<<<<<< Updated upstream
     const bindingHint = selectedMentionItems.length > 0
         ? `当前已选中 ${selectedMentionItems.length} 个画布元素，可一键绑定到提示词`
         : canvasItems.length > 0
             ? '输入 @ 可直接引用画布中的图片、文字或形状'
             : '在画布中创建或选中元素后，就能把它们绑定到提示词里';
+=======
+                <div className="relative px-4 pt-3">
+                    <textarea
+                        ref={textareaRef}
+                        value={prompt}
+                        onChange={event => {
+                            setPrompt(event.target.value);
+                            syncMentionState(event.target.value, event.target.selectionStart);
+                        }}
+                        onBlur={() => window.setTimeout(() => setMentionState(null), 120)}
+                        onKeyDown={event => {
+                            if (mentionState && filteredMentions.length > 0) {
+                                if (event.key === 'ArrowDown') {
+                                    event.preventDefault();
+                                    setMentionIndex(prev => (prev + 1) % filteredMentions.length);
+                                    return;
+                                }
+                                if (event.key === 'ArrowUp') {
+                                    event.preventDefault();
+                                    setMentionIndex(prev => (prev - 1 + filteredMentions.length) % filteredMentions.length);
+                                    return;
+                                }
+                                if (event.key === 'Enter' && !event.shiftKey) {
+                                    event.preventDefault();
+                                    insertMention(filteredMentions[mentionIndex]);
+                                    return;
+                                }
+                                if (event.key === 'Escape') {
+                                    setMentionState(null);
+                                    return;
+                                }
+                            }
+>>>>>>> Stashed changes
 
     const containerStyle: React.CSSProperties = {
         backgroundColor: 'var(--ui-bg-color)',
     };
 
+<<<<<<< Updated upstream
     const selectionStrip = selectedMentionItems.length > 0 ? (
         <div className="mb-3 rounded-[18px] border border-blue-200/80 bg-blue-50/85 p-3">
             <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
                     <div className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-600">Canvas Binding</div>
                     <div className="mt-1 text-sm text-neutral-700">{bindingHint}</div>
+=======
+                    {mentionState && filteredMentions.length > 0 && (
+                        <div className={`${popoverCardClass} top-[calc(100%_-_8px)] bottom-auto w-[360px]`}>
+                            <div className="px-2 pb-1 text-[11px] font-semibold uppercase tracking-[0.18em] text-[var(--text-subtle)]">Whiteboard References</div>
+                            <div className="space-y-1">
+                                {filteredMentions.map((item, index) => (
+                                    <button
+                                        key={item.id}
+                                        type="button"
+                                        onMouseDown={event => {
+                                            event.preventDefault();
+                                            insertMention(item);
+                                        }}
+                                        className={`flex w-full items-center gap-3 rounded-2xl px-3 py-2.5 text-left transition ${index === mentionIndex ? 'bg-[var(--accent-bg)] text-[var(--accent-text)]' : 'text-[var(--text-secondary)] hover:bg-[var(--panel-muted)]'}`}
+                                    >
+                                        <div className="h-11 w-11 overflow-hidden rounded-2xl border border-[var(--border-color)] bg-[var(--panel-muted)]">{renderPreview(item.element)}</div>
+                                        <div className="min-w-0 flex-1">
+                                            <div className="truncate text-sm font-medium">@{item.label}</div>
+                                            <div className="mt-0.5 text-xs text-[var(--text-muted)]">{TYPE_LABELS[item.element.type]}</div>
+                                        </div>
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
+                    {(attachments.length > 0 || selectedMentionItems.length > 0) && (
+                        <div className="mt-2 flex flex-wrap items-center gap-1.5 pb-1">
+                            {attachments.map(attachment => (
+                                <div
+                                    key={attachment.id}
+                                    className={`group inline-flex items-center gap-1.5 rounded-full border py-1 pl-1 pr-2 text-xs transition ${isDark ? 'border-[#2A3140] bg-[#171C24]' : 'border-[#E4E7EC] bg-[#F8FAFC]'}`}
+                                >
+                                    <div className="h-5 w-5 overflow-hidden rounded-full border border-[var(--border-color)] bg-white">
+                                        <img src={attachment.href} alt={attachment.name} className="h-full w-full object-cover" />
+                                    </div>
+                                    <span className={`max-w-[80px] truncate font-medium ${isDark ? 'text-[#F8FAFC]' : 'text-[#111827]'}`}>{attachment.name}</span>
+                                    <button
+                                        type="button"
+                                        title="Remove"
+                                        onClick={() => onRemoveAttachment?.(attachment.id)}
+                                        className={`flex h-4 w-4 items-center justify-center rounded-full transition ${isDark ? 'text-[#98A2B3] hover:text-white' : 'text-[#667085] hover:text-[#111827]'}`}
+                                    >
+                                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                                            <path d="M18 6 6 18" /><path d="m6 6 12 12" />
+                                        </svg>
+                                    </button>
+                                </div>
+                            ))}
+                            {selectedMentionItems.map(item => (
+                                <div
+                                    key={item.id}
+                                    className={`group inline-flex items-center gap-1.5 rounded-full border py-1 pl-1 pr-2 text-xs transition ${isDark ? 'border-[#34507A] bg-[#16202E]' : 'border-[#B2CCFF] bg-[#EEF4FF]'}`}
+                                >
+                                    <div className="h-5 w-5 overflow-hidden rounded-full border border-white/40 bg-white/70">{renderPreview(item.element)}</div>
+                                    <span className={`max-w-[80px] truncate font-semibold ${isDark ? 'text-[#E0EAFF]' : 'text-[#175CD3]'}`}>@{item.label}</span>
+                                    <button
+                                        type="button"
+                                        title="Remove reference"
+                                        onClick={() => setSelectedMentionIds(prev => prev.filter(id => id !== item.id))}
+                                        className={`flex h-4 w-4 items-center justify-center rounded-full transition ${isDark ? 'text-[#9DB8E5] hover:text-white' : 'text-[#528BFF] hover:text-[#175CD3]'}`}
+                                    >
+                                        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                                            <path d="M18 6 6 18" /><path d="m6 6 12 12" />
+                                        </svg>
+                                    </button>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+>>>>>>> Stashed changes
                 </div>
                 <button
                     onClick={handleBindSelection}
@@ -260,6 +421,7 @@ export const PromptBar: React.FC<PromptBarProps> = ({
         </div>
     ) : null;
 
+<<<<<<< Updated upstream
     const footerControls = (
         <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-neutral-200/70 pt-2.5">
             <div className="inline-flex items-center rounded-full bg-neutral-100 p-0.5">
@@ -284,6 +446,18 @@ export const PromptBar: React.FC<PromptBarProps> = ({
                     {t('promptBar.videoMode')}
                 </button>
             </div>
+=======
+                <div className={`relative flex items-center justify-between gap-3 border-t px-3 py-2.5 ${isDark ? 'border-[#2A3140]' : 'border-[#EEF1F5]'}`}>
+                    <div className="min-w-0 flex-1 overflow-visible">
+                        <div className="flex flex-wrap items-center gap-2">
+                            <div className="relative">
+                                <button type="button" onClick={() => setExpandedPanel(prev => (prev === 'mode' ? null : 'mode'))} className={`${triggerClass} ${expandedPanel === 'mode' ? activeTriggerClass : ''}`}>
+                                    {getModeLabel(generationMode)}
+                                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m6 9 6 6 6-6" /></svg>
+                                </button>
+                                {expandedPanel === 'mode' && <div className={popoverCardClass}><PopoverHeader title="生成类型" subtitle="选择图片、视频或首尾帧模式" /><div className="space-y-1">{(['image', 'video', 'keyframe'] as GenerationMode[]).map(mode => <MenuOptionButton key={mode} label={getModeLabel(mode)} active={generationMode === mode} onClick={() => { setGenerationMode(mode); setExpandedPanel(null); }} />)}</div></div>}
+                            </div>
+>>>>>>> Stashed changes
 
             {generationMode === 'video' && (
                 <div className="inline-flex items-center rounded-full bg-neutral-100 p-0.5">
@@ -544,10 +718,29 @@ export const PromptBar: React.FC<PromptBarProps> = ({
                         disabled={isLoading || !prompt.trim()}
                         aria-label={t('promptBar.generate')}
                         title={t('promptBar.generate')}
+<<<<<<< Updated upstream
                         className="h-11 min-w-11 rounded-2xl px-4 text-sm font-semibold text-white shadow-[0_8px_20px_rgba(15,23,42,0.22)] transition-all hover:-translate-y-0.5 hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
                         style={{ backgroundColor: 'var(--button-bg-color)' }}
                     >
                         {isLoading ? '...' : generationMode === 'video' ? 'Video' : 'Run'}
+=======
+                        className={`flex h-9 min-w-[72px] items-center justify-center rounded-xl px-3 transition disabled:cursor-not-allowed ${isDark ? 'bg-[#F3F4F6] text-[#111827] hover:bg-white disabled:bg-[#3A4458] disabled:text-[#98A2B3]' : 'bg-[#111827] text-white hover:bg-[#0F172A] disabled:bg-[#D0D5DD]'}`}
+                    >
+                        {isLoading ? (
+                            <svg className="h-4 w-4 animate-spin" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                                <circle className="opacity-30" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                                <path className="opacity-80" fill="currentColor" d="M4 12a8 8 0 0 1 8-8v4a4 4 0 0 0-4 4H4Z" />
+                            </svg>
+                        ) : (
+                            <div className="flex items-center gap-1.5">
+                                <span className="text-xs font-semibold">{t('promptBar.generate')}</span>
+                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+                                    <path d="M5 12h14" />
+                                    <path d="m12 5 7 7-7 7" />
+                                </svg>
+                            </div>
+                        )}
+>>>>>>> Stashed changes
                     </button>
                 </div>
 

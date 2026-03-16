@@ -386,7 +386,11 @@ const App: React.FC = () => {
     const [selectionBox, setSelectionBox] = useState<Rect | null>(null);
     const [prompt, setPrompt] = useState('');
     const [chatAttachments, setChatAttachments] = useState<ChatAttachment[]>([]);
+<<<<<<< Updated upstream
     // Mentioned canvas elements synced from the prompt editor.
+=======
+    // @ 鐎殿喗娲滈弫銈夊礂閸愵亞顦?id 闁告帗顨夐妴鍐晬閸垺鏆?PromptBar 闁革负鍔庨弫銈夊箣妞嬪骸浠柛鎴ｅ吹閺佹捇骞嬮幇顒€顤呴柛姘湰椤掔偞娼婚崶銊﹂檷闁?
+>>>>>>> Stashed changes
     const [mentionedElementIds, setMentionedElementIds] = useState<string[]>([]);
     const [isEnhancingPrompt, setIsEnhancingPrompt] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
@@ -403,8 +407,13 @@ const App: React.FC = () => {
         if (saved === null) return true;
         return saved === 'true';
     });
+<<<<<<< Updated upstream
     const [toolbarLeft, setToolbarLeft] = useState(68); // 宸ュ叿鏍忕殑 left 浣嶇疆
     const [rightPanelWidth, setRightPanelWidth] = useState(472);
+=======
+    const [toolbarLeft, setToolbarLeft] = useState(68); // 鐎规悶鍎遍崣鍧楀冀韫囨洘鐣?left 濞达絽绉堕悿?
+    const [rightPanelWidth, setRightPanelWidth] = useState(2); // 闁告瑥鍘栭弲鍫曟閵忊剝绶查悗鍦仱濡绢垳鈧妫勭€规娊鏁嶉崼銏℃殢闁?PromptBar 闁告艾鏈鐐烘晸?
+>>>>>>> Stashed changes
     const [wheelAction, setWheelAction] = useState<WheelAction>('zoom');
     const promptDockRef = useRef<HTMLDivElement | null>(null);
     const [promptDockHeight, setPromptDockHeight] = useState(168);
@@ -1704,7 +1713,11 @@ const App: React.FC = () => {
         try {
             setIsLoading(true);
             setError(null);
+<<<<<<< Updated upstream
             setProgressMessage('BANANA Agent 姝ｅ湪杩涜楂樻竻鏀惧ぇ...');
+=======
+            setProgressMessage('Upscaling image...');
+>>>>>>> Stashed changes
             const result = await runBananaImageAgent(
                 { href: element.href, mimeType: element.mimeType },
                 'upscale',
@@ -1725,7 +1738,11 @@ const App: React.FC = () => {
         try {
             setIsLoading(true);
             setError(null);
+<<<<<<< Updated upstream
             setProgressMessage('BANANA Agent 姝ｅ湪鍘婚櫎鑳屾櫙...');
+=======
+            setProgressMessage('BANANA Agent 婵繐绲藉﹢顏堝储婵犳碍鐝熼柤鍐叉湰濞?..');
+>>>>>>> Stashed changes
             const result = await runBananaImageAgent(
                 { href: element.href, mimeType: element.mimeType },
                 'remove-background'
@@ -1931,7 +1948,11 @@ const App: React.FC = () => {
         try {
             const isEditing = selectedElementIds.length > 0;
 
+<<<<<<< Updated upstream
             // Collect @mention reference images (鍙彇鍥剧墖绫诲厓绱狅紝鎺掗櫎宸插湪 selection 涓殑)
+=======
+            // Collect @mention reference images (闁告瑯浜滆ぐ鍥炊閸撗冾暬缂侇偉顕ч崢鎾舵閻欏懐绀夐柟鐑樺浮濞呭骸顔忛幓鎺撹含 selection 濞戞搩鍘惧▓?
+>>>>>>> Stashed changes
             const mentionedImageElements = mentionedElementIds
                 .map(id => elements.find(el => el.id === id))
                 .filter((el): el is ImageElement => !!el && el.type === 'image' && !selectedElementIds.includes(el.id));
@@ -2026,7 +2047,15 @@ const App: React.FC = () => {
                 }
 
             } else if (mentionedImageElements.length > 0) {
+<<<<<<< Updated upstream
                 // No canvas selection, but user @mentioned image elements 鈫?use editImage as reference-guided generation
+=======
+                if (!supportsReferenceEditing) {
+                    setError('The current image model does not support @ reference image generation. Please switch to a Gemini or Imagen image model.');
+                    return;
+                }
+                // No canvas selection, but user @mentioned image elements 闁?use editImage as reference-guided generation
+>>>>>>> Stashed changes
                 setProgressMessage('Generating with reference images...');
                 const mentionRefs = mentionedImageElements.map(el => ({ href: el.href, mimeType: el.mimeType }));
                 const result = await editImage([...mentionRefs, ...attachmentReferenceImages, ...characterReferenceImages], effectivePrompt);
@@ -3442,3 +3471,7 @@ const App: React.FC = () => {
 export default App;
 
 
+<<<<<<< Updated upstream
+=======
+
+>>>>>>> Stashed changes

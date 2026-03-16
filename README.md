@@ -1,12 +1,22 @@
 <div align="center">
+<<<<<<< Updated upstream
 
 # MakingLovart | Creative Whiteboard
 
 A modern AI-powered infinite canvas designed for creative professionals.
+=======
+
+# MakingLovart
+
+**An open-source, AI-powered infinite canvas for visual creation**
+
+一个开源的 AI 无限画布创作工具
+>>>>>>> Stashed changes
 
 [![Built with Nano Banana](https://img.shields.io/badge/Built%20with-Nano%20Banana-yellow?style=flat-square)](https://github.com/JimLiu/nanoBanana)
 [![Inspired by Lovart](https://img.shields.io/badge/UI%20Inspired%20by-Lovart-ff69b4?style=flat-square)](https://lovart.com/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg?style=flat-square)](LICENSE)
+<<<<<<< Updated upstream
 
 **[🇨🇳 中文文档](DOCKER_GUIDE.md#-中文文档)** · **[🇬🇧 English](#project-overview)**
 
@@ -84,4 +94,186 @@ If this project helps you, please give it a ⭐️
 
 [Report Bug](../../issues) · [Request Feature](../../issues)
 
+=======
+[![PRs Welcome](https://img.shields.io/badge/PRs-Welcome-brightgreen?style=flat-square)](../../pulls)
+
+**[English](#-overview)** · **[中文文档](DOCKER_GUIDE.md#-中文文档)**
+
+![MakingLovart](displaypage.png)
+
+</div>
+
+---
+
+## ⚡ Overview
+
+MakingLovart is an infinite canvas whiteboard that combines freehand drawing, layer management, a categorized asset library and multi-model AI generation into a single workspace. Think [Lovart](https://lovart.com/) meets Figma, with built-in Gemini / OpenAI / Qwen / Stability support.
+
+> **Note:** This is an educational project — all feedback, issues and PRs are welcome.
+
+### What you can do
+
+- **Draw freely** — brushes, highlighter, lasso, shapes, arrows, text
+- **Manage layers** — lock, hide, rename, drag-to-reorder; group / ungroup
+- **Organize inspiration** — Characters · Scenes · Props library with drag-and-drop to canvas
+- **Generate with AI** — text→image, image editing, inpainting, prompt enhancement, experimental video (Veo 2.0)
+- **Run node workflows** — visual node editor for chaining AI generation steps
+- **Work across boards** — multiple independent boards, each auto-saved locally
+- **Use @ mentions** — reference canvas elements in prompts via rich-text `@mention` syntax
+- **Switch languages** — full English / 中文 interface
+
+---
+
+## 🚀 Quick Start
+
+### Prerequisites
+
+| Tool | Version |
+|------|---------|
+| Node.js | 16+ |
+| npm | 7+ |
+
+### Install & Run
+
+```bash
+git clone https://github.com/Paker-kk/MakingLovart.git
+cd MakingLovart
+npm install
+npm run dev
+```
+
+Open **http://localhost:5173** — the whiteboard works immediately, no API key required.
+
+### Enable AI Features (optional)
+
+```bash
+copy .env.example .env.local
+```
+
+Edit `.env.local`:
+
+```env
+VITE_GEMINI_API_KEY=your_gemini_key
+```
+
+Or configure keys for OpenAI / Qwen / Stability / Banana in the in-app Settings panel.
+
+> Whiteboard, drawing, layers, inspiration library — all work without any API key.
+
+---
+
+## 🐳 Docker
+
+```bash
+docker-compose up -d        # http://localhost:3000
+```
+
+Full deployment guide (Nginx / Caddy / Traefik, resource limits, troubleshooting):
+📖 **[DOCKER_GUIDE.md](DOCKER_GUIDE.md)**
+
+---
+
+## 🎨 Features
+
+| Category | Details |
+|----------|---------|
+| **Canvas** | Infinite pan & zoom, snap guides, custom background |
+| **Drawing** | Pencil, highlighter, eraser, lasso, rectangle, circle, triangle, arrow, line, text |
+| **Layers** | Visibility toggle, lock, rename, drag reorder, grouping |
+| **Inspiration Library** | Characters / Scenes / Props tabs, drag-to-canvas, rename, AI-generate into library |
+| **AI Generation** | Text→image (Gemini, Imagen 4, DALL·E, Qwen), image editing, inpainting, prompt enhance |
+| **Video** | Experimental image→video via Veo 2.0 |
+| **Node Workflow** | Visual node editor for chaining prompt → generate → edit steps |
+| **Rich Prompt** | TipTap editor with `@mention` to reference canvas elements |
+| **Quick Prompts** | 25+ built-in prompt templates (figure, cosplay, line art, Funko Pop, LEGO, etc.) |
+| **Multi-board** | Independent boards with auto-save to localStorage |
+| **i18n** | English + 中文 |
+| **Multi-model** | Google Gemini, OpenAI, Anthropic, Qwen, Stability AI, Banana — configurable per capability |
+
+---
+
+## 🏗️ Tech Stack
+
+- **Framework:** React 19 + TypeScript
+- **Build:** Vite 6
+- **Styling:** Tailwind CSS
+- **Rich Text:** TipTap (mention / prompt editor)
+- **AI SDK:** `@google/genai` + OpenAI-compatible gateway
+- **Storage:** localStorage (boards, assets, settings)
+
+---
+
+## 📂 Project Structure
+
+```
+MakingLovart/
+├── App.tsx                    # Main app (canvas, state, rendering)
+├── types.ts                   # Shared TypeScript types
+├── translations.ts            # i18n (EN / ZH)
+├── components/
+│   ├── Toolbar.tsx            # Drawing & shape tools
+│   ├── PromptBar.tsx          # AI prompt input
+│   ├── RichPromptEditor.tsx   # TipTap @mention editor
+│   ├── InspirationPanel.tsx   # Asset library (characters / scenes / props)
+│   ├── WorkspaceSidebar.tsx   # Board list + layer panel
+│   ├── NodeWorkflowPanel.tsx  # Visual node workflow editor
+│   ├── CanvasSettings.tsx     # Canvas background & preferences
+│   └── ...
+├── services/
+│   ├── geminiService.ts       # Gemini / Imagen / Veo API
+│   ├── aiGateway.ts           # OpenAI / Qwen / Stability / Anthropic router
+│   └── bananaService.ts       # Banana split-layer & agent API
+├── utils/
+│   ├── assetStorage.ts        # Inspiration library persistence
+│   ├── generationHistory.ts   # AI generation history
+│   └── fileUtils.ts           # File / DataURL helpers
+├── DOCKER_GUIDE.md            # Docker deployment (CN + EN)
+├── CONTRIBUTING.md
+└── LICENSE
+```
+
+---
+
+## 🗺️ Roadmap
+
+- [ ] Real-time multi-user collaboration
+- [ ] Cloud sync & backup
+- [ ] More AI models (Stable Diffusion XL, Flux, etc.)
+- [ ] Plugin / extension architecture
+- [ ] Export to PDF / high-res image
+- [ ] Mobile & tablet optimization
+
+---
+
+## 🤝 Contributing
+
+1. Fork → branch → commit → PR
+2. Run `npm run dev` to verify locally
+3. Keep PRs focused and well-described
+
+See **[CONTRIBUTING.md](CONTRIBUTING.md)** for full guidelines.
+
+---
+
+## 🙏 Credits
+
+- **[BananaPod](https://github.com/ZHO-ZHO-ZHO/BananaPod)** — the original creative whiteboard by @ZHO-ZHO-ZHO
+- **[Nano Banana](https://github.com/JimLiu/nanoBanana)** — infinite canvas engine by @JimLiu
+- **[Lovart](https://lovart.com/)** — UI/UX design inspiration
+
+---
+
+## 📄 License
+
+[MIT](LICENSE) © MakingLovart Contributors
+
+---
+
+<div align="center">
+
+If this project helps you, please ⭐ the repo — it means a lot!
+
+[Report Bug](../../issues) · [Request Feature](../../issues)
+
+>>>>>>> Stashed changes
 </div>
