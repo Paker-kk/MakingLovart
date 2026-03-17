@@ -193,6 +193,16 @@ async function enhancePromptWithAnthropic(
     return safeParsePromptResult(raw, request.prompt);
 }
 
+/**
+ * 【函数】统一的提示词润色入口
+ *
+ * 根据模型名称自动推断 provider，路由到对应的润色实现。
+ * 所有 provider 都通过 key 参数即时传入 API Key，避免依赖全局状态。
+ *
+ * @param request  - 润色请求（原始提示词 + 模式）
+ * @param model    - 模型名称（用于推断 provider）
+ * @param key      - 用户配置的 API Key（可选，从 App.tsx state 传入）
+ */
 export async function enhancePromptWithProvider(
     request: PromptEnhanceRequest,
     model: string,
@@ -201,7 +211,8 @@ export async function enhancePromptWithProvider(
     const provider = inferProviderFromModel(model);
 
     if (provider === 'google') {
-        return enhancePromptWithGemini(request);
+        // 传入 key?.key 确保使用用户配置的 API Key，而非仅依赖全局 runtimeConfig
+        return enhancePromptWithGemini(request, key?.key);
     }
 
     if (provider === 'anthropic') {
@@ -211,6 +222,17 @@ export async function enhancePromptWithProvider(
     return enhancePromptWithOpenAICompatible(request, model, provider, key);
 }
 
+/**
+ * 【函数】统一的图片生成入口
+ *
+ * 根据模型名称路由到 Google Imagen / OpenAI DALL-E / Stability SDXL 等。
+ * 当前支持：google、openai、stability、custom。
+ * Anthropic / Qwen / Banana 暂不支持图片生成，会抛出错误。
+ *
+ * @param prompt - 图片描述提示词
+ * @param model  - 模型名称
+ * @param key    - 用户 API Key
+ */
 export async function generateImageWithProvider(
     prompt: string,
     model: string,
@@ -219,7 +241,8 @@ export async function generateImageWithProvider(
     const provider = inferProviderFromModel(model);
 
     if (provider === 'google') {
-        return generateImageFromText(prompt);
+        // 传入 key?.key 确保使用用户 UI 中配置的 API Key
+        return generateImageFromText(prompt, key?.key);
     }
 
     if (provider === 'openai' || provider === 'custom') {

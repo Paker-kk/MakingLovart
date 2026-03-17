@@ -130,12 +130,14 @@ export interface AssetLibrary {
 export interface GenerationHistoryItem {
   id: string;
   name?: string;
-  dataUrl: string;
+  dataUrl: string;        // 图片 base64 或视频缩略图 base64
   mimeType: string;
   width: number;
   height: number;
   prompt: string;
   createdAt: number;
+  /** 生成类型：image | video，默认 image */
+  mediaType?: 'image' | 'video';
 }
 
 // API Key & Model Preferences

@@ -9,6 +9,7 @@ import { Toolbar } from './components/Toolbar';
 import { PromptBar } from './components/PromptBar';
 import { Loader } from './components/Loader';
 import { CanvasSettings } from './components/CanvasSettings';
+import { OnboardingWizard } from './components/OnboardingWizard';
 import { WorkspaceSidebar } from './components/WorkspaceSidebar';
 import type { Tool, Point, Element, ImageElement, PathElement, ShapeElement, TextElement, ArrowElement, UserEffect, LineElement, WheelAction, GroupElement, Board, VideoElement, AssetLibrary, AssetCategory, AssetItem, UserApiKey, ModelPreference, AIProvider, AICapability, PromptEnhanceMode, CharacterLockProfile, GenerationHistoryItem, ThemeMode, ChatAttachment } from './types';
 import { AssetLibraryPanel } from './components/AssetLibraryPanel';
@@ -367,14 +368,14 @@ const createNewBoard = (name: string): Board => {
 
 const DEFAULT_MODEL_PREFS: ModelPreference = {
     textModel: 'gemini-2.5-pro',
-    imageModel: 'gemini-2.5-flash-image-preview',
+    imageModel: 'gemini-2.5-flash-image',
     videoModel: 'veo-2.0-generate-001',
     agentModel: 'banana-vision-v1',
 };
 
 // 根据 provider 映射出可选模型列表
 const PROVIDER_MODELS: Record<string, { text: string[]; image: string[]; video: string[] }> = {
-    google:    { text: ['gemini-2.5-pro', 'gemini-2.5-flash'], image: ['gemini-2.5-flash-image-preview', 'imagen-4.0-generate-001'], video: ['veo-2.0-generate-001'] },
+    google:    { text: ['gemini-2.5-pro', 'gemini-2.5-flash'], image: ['gemini-2.5-flash-image', 'imagen-4.0-generate-001'], video: ['veo-2.0-generate-001'] },
     openai:    { text: ['gpt-4o-mini'], image: ['dall-e-3'], video: [] },
     anthropic: { text: ['claude-3-5-sonnet'], image: [], video: [] },
     qwen:      { text: ['qwen-max'], image: [], video: [] },
@@ -383,7 +384,7 @@ const PROVIDER_MODELS: Record<string, { text: string[]; image: string[]; video: 
 };
 // 兜底：当用户没有任何 API Key 时的默认选项（不可用，仅占位）
 const FALLBACK_TEXT_OPTIONS = ['gemini-2.5-pro'];
-const FALLBACK_IMAGE_OPTIONS = ['gemini-2.5-flash-image-preview'];
+const FALLBACK_IMAGE_OPTIONS = ['gemini-2.5-flash-image'];
 const FALLBACK_VIDEO_OPTIONS = ['veo-2.0-generate-001'];
 const BOARDS_STORAGE_KEY = 'boards.v1';
 const ACTIVE_BOARD_STORAGE_KEY = 'boards.activeId.v1';
@@ -577,6 +578,8 @@ const App: React.FC = () => {
     }, [themeMode]);
     const [userApiKeys, setUserApiKeys] = useState<UserApiKey[]>([]);
     const [apiKeysLoaded, setApiKeysLoaded] = useState(false);
+    // 新用户引导弹窗：API Key 加载完成且无任何 Key 时自动显示
+    const [showOnboarding, setShowOnboarding] = useState(false);
     const [clearKeysOnExit, setClearKeysOnExit] = useState<boolean>(() => {
         try { return localStorage.getItem('security.clearKeysOnExit') === 'true'; } catch { return false; }
     });
@@ -707,6 +710,18 @@ const App: React.FC = () => {
         saveKeysEncrypted(userApiKeys);
     }, [userApiKeys, apiKeysLoaded]);
 
+    // 新用户引导：API Key 异步加载完成后，如果没有任何 Key 且用户未主动跳过，自动弹出引导
+    useEffect(() => {
+        if (!apiKeysLoaded) return;
+        const hasSkipped = localStorage.getItem('onboarding.skipped') === 'true';
+        if (userApiKeys.length === 0 && !hasSkipped) {
+            setShowOnboarding(true);
+        } else if (userApiKeys.length > 0) {
+            // 用户在设置面板中添加了 Key → 自动关闭引导弹窗
+            setShowOnboarding(false);
+        }
+    }, [apiKeysLoaded, userApiKeys.length]);
+
     // 持久化 clearKeysOnExit 设置
     useEffect(() => {
         localStorage.setItem('security.clearKeysOnExit', clearKeysOnExit.toString());
@@ -824,6 +839,12 @@ const App: React.FC = () => {
         setUserApiKeys(prev => prev.filter(k => k.id !== id));
     }, []);
 
+    const handleUpdateApiKey = useCallback((id: string, patch: Partial<Omit<UserApiKey, 'id' | 'createdAt'>>) => {
+        setUserApiKeys(prev => prev.map(k =>
+            k.id === id ? { ...k, ...patch, updatedAt: Date.now() } : k
+        ));
+    }, []);
+
     const handleSetDefaultApiKey = useCallback((id: string) => {
         setUserApiKeys(prev => {
             const target = prev.find(k => k.id === id);
@@ -905,6 +926,7 @@ const App: React.FC = () => {
         width: number;
         height: number;
         prompt: string;
+        mediaType?: 'image' | 'video';
     }) => {
         const item: GenerationHistoryItem = {
             id: generateId(),
@@ -915,6 +937,7 @@ const App: React.FC = () => {
             height: payload.height,
             prompt: payload.prompt,
             createdAt: Date.now(),
+            mediaType: payload.mediaType,
         };
 
         setGenerationHistory(prev => addGenerationHistoryItem(prev, item));
@@ -2090,6 +2113,56 @@ const App: React.FC = () => {
         }
     }, [editingElement?.text, setElements]);
 
+    /**
+     * 构建带有图片引用标注的提示词
+     *
+     * 将 prompt 中的 @Label 标记（如 @Image_1、@图片_2）替换为有序的
+     * 「[参考图N]」标记，并按出现顺序返回对应的图片数据数组。
+     * 这样 Gemini API 收到的 parts 就能通过位置正确匹配引用关系。
+     *
+     * 例：
+     *   输入 prompt: "把@Image_1的人物替换为@Image_2的兔子"
+     *   输出 prompt: "把[参考图1]的人物替换为[参考图2]的兔子"
+     *   输出 orderedImages: [Image_1的数据, Image_2的数据]
+     */
+    const buildMentionAwarePrompt = useCallback((
+        rawPrompt: string,
+        mentionedImages: ImageElement[],
+    ): { prompt: string; orderedMentionImages: { href: string; mimeType: string }[] } => {
+        if (mentionedImages.length === 0) {
+            return { prompt: rawPrompt, orderedMentionImages: [] };
+        }
+
+        // 按照 prompt 中 @label 出现的位置排序
+        const mentionOrder: { element: ImageElement; index: number }[] = [];
+        for (const el of mentionedImages) {
+            // 尝试匹配 @name 或 @label（CanvasMentionExtension 输出的格式）
+            const escapedName = (el.name || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const regex = new RegExp(`@${escapedName}\\b`, 'i');
+            const match = rawPrompt.match(regex);
+            mentionOrder.push({ element: el, index: match ? match.index! : Infinity });
+        }
+        mentionOrder.sort((a, b) => a.index - b.index);
+
+        // 替换 prompt 中的 @label → [参考图N]
+        let processedPrompt = rawPrompt;
+        const orderedImages: { href: string; mimeType: string }[] = [];
+        mentionOrder.forEach(({ element }, idx) => {
+            const escapedName = (element.name || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const regex = new RegExp(`@${escapedName}\\b`, 'gi');
+            processedPrompt = processedPrompt.replace(regex, `[参考图${idx + 1}]`);
+            orderedImages.push({ href: element.href, mimeType: element.mimeType });
+        });
+
+        // 如果有多张参考图，在 prompt 前添加说明
+        if (orderedImages.length > 1) {
+            const mapping = orderedImages.map((_, i) => `[参考图${i + 1}]`).join('、');
+            processedPrompt = `以下提示词中包含 ${mapping} 分别对应按顺序传入的参考图片。\n${processedPrompt}`;
+        }
+
+        return { prompt: processedPrompt, orderedMentionImages: orderedImages };
+    }, []);
+
 
     const handleGenerate = async (promptOverride?: string, source: 'prompt' | 'right' = 'prompt') => {
         let rawPrompt = (promptOverride ?? prompt).trim();
@@ -2146,6 +2219,121 @@ const App: React.FC = () => {
         const videoProvider = inferProviderFromModel(modelPreference.videoModel);
         const supportsReferenceEditing = imageProvider === 'google';
         const imageOutputName = generationMode === 'keyframe' ? 'Keyframe' : 'Generated Image';
+
+        /**
+         * ======== 首尾帧动画模式 (Keyframe Mode) ========
+         *
+         * 【功能】用户选中或 @引用一张起始帧图片，Veo 2.0 会基于该图片
+         *        生成一段平滑的过渡动画视频并放置到画布上。
+         *
+         * 【参考图优先级】选中图片 > @引用图片
+         * 【输出】VideoElement（blob URL），放置在画布中心
+         *
+         * 【限制】Veo API 当前仅支持单张参考图作为起始帧，
+         *        如有两张以上参考图会在提示词中描述过渡意图。
+         */
+        if (generationMode === 'keyframe') {
+            try {
+                // 前置检查：首尾帧动画仅支持 Google Veo 模型
+                if (videoProvider !== 'google') {
+                    throw new Error('首尾帧动画目前仅支持 Google Veo 模型，请先配置 Google 视频 API Key。');
+                }
+
+                // 收集参考帧图片：优先选中的 → 然后 @引用的
+                const mentionedImages = mentionedElementIds
+                    .map(id => elements.find(el => el.id === id))
+                    .filter((el): el is ImageElement => !!el && el.type === 'image');
+                const selectedImages = elements
+                    .filter(el => selectedElementIds.includes(el.id) && el.type === 'image') as ImageElement[];
+                const allFrameRefs = [...selectedImages, ...mentionedImages];
+
+                // 至少需要 1 张参考图作为起始帧
+                if (allFrameRefs.length < 1) {
+                    setError('首尾帧模式至少需要 1 张参考图（选中或 @引用画布图片）作为起始帧。');
+                    setIsLoading(false);
+                    return;
+                }
+
+                // 取第一张图片作为 Veo 的 image 参数（API 只接受单张）
+                const startFrame = allFrameRefs[0];
+                // 如有 ≥2 张参考图，在提示词中描述"从首帧过渡到尾帧"
+                const keyframePrompt = allFrameRefs.length >= 2
+                    ? `Animate a smooth cinematic transition from the first frame to the second frame. ${effectivePrompt}`
+                    : `Animate this image with smooth motion. ${effectivePrompt}`;
+
+                setProgressMessage('正在生成首尾帧过渡动画...');
+                const { videoBlob, mimeType } = await generateVideo(
+                    keyframePrompt,
+                    videoAspectRatio,
+                    (message) => setProgressMessage(message),
+                    { href: startFrame.href, mimeType: startFrame.mimeType }
+                );
+
+                // 将视频 Blob 转为 URL 并获取尺寸元数据
+                setProgressMessage('处理视频中...');
+                const videoUrl = URL.createObjectURL(videoBlob);
+                const video = document.createElement('video');
+
+                video.onloadedmetadata = () => {
+                    if (!svgRef.current) return;
+
+                    // 限制最大尺寸 800px 以免画布元素过大
+                    let newWidth = video.videoWidth;
+                    let newHeight = video.videoHeight;
+                    const MAX_DIM = 800;
+                    if (newWidth > MAX_DIM || newHeight > MAX_DIM) {
+                        const ratio = newWidth / newHeight;
+                        if (ratio > 1) { newWidth = MAX_DIM; newHeight = MAX_DIM / ratio; }
+                        else { newHeight = MAX_DIM; newWidth = MAX_DIM * ratio; }
+                    }
+
+                    // 放置到画布可视区域中心
+                    const svgBounds = svgRef.current!.getBoundingClientRect();
+                    const screenCenter = { x: svgBounds.left + svgBounds.width / 2, y: svgBounds.top + svgBounds.height / 2 };
+                    const canvasPoint = getCanvasPoint(screenCenter.x, screenCenter.y);
+
+                    const newVideoElement: VideoElement = {
+                        id: generateId(), type: 'video', name: 'Keyframe Animation',
+                        x: canvasPoint.x - (newWidth / 2), y: canvasPoint.y - (newHeight / 2),
+                        width: newWidth, height: newHeight,
+                        href: videoUrl, mimeType,
+                    };
+                    commitAction(prev => [...prev, newVideoElement]);
+                    setSelectedElementIds([newVideoElement.id]);
+
+                    // 截取视频第一帧作为缩略图保存到历史记录
+                    try {
+                        const canvas = document.createElement('canvas');
+                        canvas.width = video.videoWidth;
+                        canvas.height = video.videoHeight;
+                        const ctx = canvas.getContext('2d');
+                        if (ctx) {
+                            ctx.drawImage(video, 0, 0);
+                            const thumbnailUrl = canvas.toDataURL('image/png');
+                            saveGenerationToHistory({
+                                name: 'Keyframe Animation',
+                                dataUrl: thumbnailUrl,
+                                mimeType: 'image/png',
+                                width: video.videoWidth,
+                                height: video.videoHeight,
+                                prompt: effectivePrompt,
+                                mediaType: 'video',
+                            });
+                        }
+                    } catch { /* 缩略图失败不影响主流程 */ }
+
+                    setIsLoading(false);
+                };
+                video.onerror = () => { setError('无法加载生成的关键帧视频。'); setIsLoading(false); };
+                video.src = videoUrl;
+            } catch (err) {
+                const error = err as Error;
+                setError(`首尾帧动画生成失败: ${error.message}`);
+                console.error('Keyframe generation failed:', error);
+                setIsLoading(false);
+            }
+            return;
+        }
 
         if (generationMode === 'video') {
             try {
@@ -2221,6 +2409,28 @@ const App: React.FC = () => {
 
                     commitAction(prev => [...prev, newVideoElement]);
                     setSelectedElementIds([newVideoElement.id]);
+
+                    // 截取视频第一帧作为缩略图保存到历史记录
+                    try {
+                        const canvas = document.createElement('canvas');
+                        canvas.width = video.videoWidth;
+                        canvas.height = video.videoHeight;
+                        const ctx = canvas.getContext('2d');
+                        if (ctx) {
+                            ctx.drawImage(video, 0, 0);
+                            const thumbnailUrl = canvas.toDataURL('image/png');
+                            saveGenerationToHistory({
+                                name: 'Generated Video',
+                                dataUrl: thumbnailUrl,
+                                mimeType: 'image/png',
+                                width: video.videoWidth,
+                                height: video.videoHeight,
+                                prompt: effectivePrompt,
+                                mediaType: 'video',
+                            });
+                        }
+                    } catch { /* 缩略图失败不影响主流程 */ }
+
                     setIsLoading(false);
                 };
 
@@ -2316,11 +2526,11 @@ const App: React.FC = () => {
                 });
                 const imagesToProcess = await Promise.all(imagePromises);
 
-                // Append @mentioned reference images
-                const mentionRefs = mentionedImageElements.map(el => ({ href: el.href, mimeType: el.mimeType }));
+                // Append @mentioned reference images — 按 prompt 中出现顺序排列
+                const { prompt: mentionPrompt, orderedMentionImages } = buildMentionAwarePrompt(effectivePrompt, mentionedImageElements);
                 const result = await editImage(
-                    [...imagesToProcess, ...mentionRefs, ...attachmentReferenceImages, ...characterReferenceImages],
-                    effectivePrompt
+                    [...imagesToProcess, ...orderedMentionImages, ...attachmentReferenceImages, ...characterReferenceImages],
+                    mentionPrompt
                 );
 
                 if (result.newImageBase64 && result.newImageMimeType) {
@@ -2365,10 +2575,10 @@ const App: React.FC = () => {
                     setError('The current image model does not support @ reference image generation. Please switch to a Gemini or Imagen image model.');
                     return;
                 }
-                // No canvas selection, but user @mentioned image elements 閿?use editImage as reference-guided generation
+                // No canvas selection, but user @mentioned image elements — 按 prompt 引用顺序排列
                 setProgressMessage('Generating with reference images...');
-                const mentionRefs = mentionedImageElements.map(el => ({ href: el.href, mimeType: el.mimeType }));
-                const result = await editImage([...mentionRefs, ...attachmentReferenceImages, ...characterReferenceImages], effectivePrompt);
+                const { prompt: mentionPrompt2, orderedMentionImages: orderedRefs } = buildMentionAwarePrompt(effectivePrompt, mentionedImageElements);
+                const result = await editImage([...orderedRefs, ...attachmentReferenceImages, ...characterReferenceImages], mentionPrompt2);
 
                 if (result.newImageBase64 && result.newImageMimeType) {
                     const { newImageBase64, newImageMimeType } = result;
@@ -2919,6 +3129,7 @@ const App: React.FC = () => {
                 userApiKeys={userApiKeys}
                 onAddApiKey={handleAddApiKey}
                 onDeleteApiKey={handleDeleteApiKey}
+                onUpdateApiKey={handleUpdateApiKey}
                 onSetDefaultApiKey={handleSetDefaultApiKey}
                 modelPreference={modelPreference}
                 setModelPreference={setModelPreference}
@@ -2926,6 +3137,16 @@ const App: React.FC = () => {
                 apiConfigStore={apiConfigStore}
                 clearKeysOnExit={clearKeysOnExit}
                 setClearKeysOnExit={setClearKeysOnExit}
+            />
+            {/* 新用户引导弹窗 — 无 API Key 时自动出现 */}
+            <OnboardingWizard
+                isOpen={showOnboarding}
+                onClose={() => {
+                    setShowOnboarding(false);
+                    localStorage.setItem('onboarding.skipped', 'true');
+                }}
+                onAddApiKey={handleAddApiKey}
+                resolvedTheme={resolvedTheme}
             />
             <Toolbar
                 t={t}
@@ -3411,6 +3632,8 @@ const App: React.FC = () => {
                             activeApiModelId={apiConfigStore.activeModelId}
                             onApiConfigChange={apiConfigStore.setActiveConfig}
                             onApiModelChange={apiConfigStore.setActiveModel}
+                            userApiKeys={userApiKeys}
+                            onOpenSettings={() => setIsSettingsPanelOpen(true)}
                         />
                     </div>
                 </div>

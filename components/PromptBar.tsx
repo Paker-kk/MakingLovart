@@ -6,6 +6,7 @@ import type {
     GenerationMode,
     PromptEnhanceMode,
     PromptEnhanceResult,
+    UserApiKey,
     UserEffect,
 } from '../types';
 import type { APIConfig, ModelItem } from '../src/types/api-config';
@@ -57,6 +58,9 @@ interface PromptBarProps {
     activeApiModelId?: string | null;
     onApiConfigChange?: (id: string) => void;
     onApiModelChange?: (modelId: string) => void;
+    // API Key 联动
+    userApiKeys?: UserApiKey[];
+    onOpenSettings?: () => void;
 }
 
 type ExpandPanel = 'mode' | 'model' | 'more' | null;
@@ -182,6 +186,8 @@ export const PromptBar: React.FC<PromptBarProps> = ({
     activeApiModelId = null,
     onApiConfigChange,
     onApiModelChange,
+    userApiKeys = [],
+    onOpenSettings,
 }) => {
     const isDark = theme === 'dark';
     const rootRef = useRef<HTMLDivElement>(null);
@@ -494,7 +500,40 @@ export const PromptBar: React.FC<PromptBarProps> = ({
                 <div className={`relative flex items-center justify-between gap-3 border-t ${compactMode ? 'px-2.5 py-2' : 'px-3 py-2.5'} ${isDark ? 'border-[#2A3140]' : 'border-[#EEF1F5]'}`}>
                     <div className="min-w-0 flex-1 overflow-visible">
                         <div className="flex flex-wrap items-center gap-2">
-                            {/* API 配置选择器 */}
+                            {/* API Key 状态指示器 — 与设置面板联动 */}
+                            {(() => {
+                                const defaultKey = userApiKeys.find(k => k.isDefault);
+                                const keyCount = userApiKeys.length;
+                                if (keyCount === 0) {
+                                    return (
+                                        <button
+                                            type="button"
+                                            onClick={onOpenSettings}
+                                            className={`inline-flex h-8 items-center gap-1.5 rounded-full border border-dashed px-3 text-[11px] font-medium transition ${
+                                                isDark ? 'border-[#7A271A] text-[#FDA29B] hover:bg-[#3A1616]' : 'border-[#FECACA] text-[#DC2626] hover:bg-[#FEF3F2]'
+                                            }`}
+                                        >
+                                            🔑 未配置 API Key
+                                        </button>
+                                    );
+                                }
+                                return (
+                                    <button
+                                        type="button"
+                                        onClick={onOpenSettings}
+                                        className={`inline-flex h-8 items-center gap-1.5 rounded-full border px-3 text-xs font-medium transition ${
+                                            isDark ? 'border-[#2A3140] bg-[#1B2029] text-[#D0D5DD] hover:bg-[#252C39]' : 'border-[#E5E7EB] bg-[#F5F7FA] text-[#344054] hover:bg-white'
+                                        }`}
+                                        title={`已配置 ${keyCount} 个 Key，点击打开设置管理`}
+                                    >
+                                        <span className={`inline-block h-2 w-2 rounded-full ${defaultKey?.status === 'ok' ? 'bg-green-500' : 'bg-yellow-400'}`} />
+                                        <span className="max-w-[100px] truncate">{defaultKey?.name || defaultKey?.provider || 'API Key'}</span>
+                                        {keyCount > 1 && <span className={`text-[10px] ${isDark ? 'text-[#667085]' : 'text-[#98A2B3]'}`}>+{keyCount - 1}</span>}
+                                    </button>
+                                );
+                            })()}
+
+                            {/* API 配置选择器（高级配置） */}
                             {apiConfigs.length > 0 && onApiConfigChange && onApiModelChange && (
                                 <ConfigSelector
                                     configs={apiConfigs}

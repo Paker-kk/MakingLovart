@@ -19,11 +19,14 @@ interface CanvasSettingsProps {
     userApiKeys: UserApiKey[];
     onAddApiKey: (payload: Omit<UserApiKey, 'id' | 'createdAt' | 'updatedAt'>) => void;
     onDeleteApiKey: (id: string) => void;
+    onUpdateApiKey: (id: string, patch: Partial<Omit<UserApiKey, 'id' | 'createdAt'>>) => void;
     onSetDefaultApiKey: (id: string) => void;
     modelPreference: ModelPreference;
     setModelPreference: (prefs: ModelPreference) => void;
     t: (key: string) => string;
     apiConfigStore: APIConfigStore;
+    clearKeysOnExit: boolean;
+    setClearKeysOnExit: (v: boolean) => void;
 }
 
 const providerBaseUrl: Record<AIProvider, string> = {
@@ -45,7 +48,7 @@ const capabilityLabels: Record<AICapability, string> = {
 
 const modelOptions = {
     text: ['gemini-2.5-pro', 'gpt-4o-mini', 'claude-3-5-sonnet', 'qwen-max'],
-    image: ['gemini-2.5-flash-image-preview', 'imagen-4.0-generate-001', 'dall-e-3', 'sdxl'],
+    image: ['gemini-2.5-flash-image', 'imagen-4.0-generate-001', 'dall-e-3', 'sdxl'],
     video: ['veo-2.0-generate-001'],
     agent: ['banana-vision-v1'],
 };
@@ -63,10 +66,13 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
     userApiKeys,
     onAddApiKey,
     onDeleteApiKey,
+    onUpdateApiKey,
     onSetDefaultApiKey,
     modelPreference,
     setModelPreference,
     apiConfigStore,
+    clearKeysOnExit,
+    setClearKeysOnExit,
 }) => {
     const [provider, setProvider] = React.useState<AIProvider>('google');
     const [apiKey, setApiKey] = React.useState('');
@@ -78,6 +84,10 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
     const [validationResult, setValidationResult] = React.useState<{ ok: boolean; message?: string } | null>(null);
     const [showConfigForm, setShowConfigForm] = React.useState(false);
     const [editingConfig, setEditingConfig] = React.useState<APIConfig | null>(null);
+    // 当前正在编辑的 API Key（null = 新增模式）
+    const [editingKeyId, setEditingKeyId] = React.useState<string | null>(null);
+    // 控制 API Key 添加/编辑弹窗
+    const [showKeyModal, setShowKeyModal] = React.useState(false);
 
     if (!isOpen) return null;
 
@@ -129,18 +139,50 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
 
         if (!result.ok) return; // 验证失败不保存
 
-        onAddApiKey({
-            provider,
-            capabilities,
-            key: apiKey.trim(),
-            baseUrl: baseUrl.trim() || undefined,
-            name: displayName.trim() || undefined,
-            status: 'ok',
-            isDefault: false,
-        });
+        if (editingKeyId) {
+            // 编辑模式：更新已有 Key
+            onUpdateApiKey(editingKeyId, {
+                provider,
+                capabilities,
+                key: apiKey.trim(),
+                baseUrl: baseUrl.trim() || undefined,
+                name: displayName.trim() || undefined,
+                status: 'ok',
+            });
+        } else {
+            // 新增模式
+            onAddApiKey({
+                provider,
+                capabilities,
+                key: apiKey.trim(),
+                baseUrl: baseUrl.trim() || undefined,
+                name: displayName.trim() || undefined,
+                status: 'ok',
+                isDefault: false,
+            });
+        }
+        handleCancelEdit();
+    };
+
+    /** 点击已有 Key 的"编辑"按钮 — 将其字段填入表单并打开弹窗 */
+    const handleStartEdit = (item: UserApiKey) => {
+        setEditingKeyId(item.id);
+        setProvider(item.provider);
+        setApiKey(item.key);
+        setBaseUrl(item.baseUrl || providerBaseUrl[item.provider]);
+        setDisplayName(item.name || '');
+        setCapabilities(item.capabilities?.length ? [...item.capabilities] : ['text', 'image', 'video']);
+        setValidationResult(null);
+        setShowKeyModal(true);
+    };
+
+    /** 取消编辑 / 重置表单并关闭弹窗 */
+    const handleCancelEdit = () => {
+        setEditingKeyId(null);
         setApiKey('');
         setDisplayName('');
         setValidationResult(null);
+        setShowKeyModal(false);
     };
 
     return (
@@ -316,87 +358,19 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
                     </section>
 
                     <section className="space-y-3">
-                        <div className={`text-xs font-semibold uppercase tracking-[0.18em] ${isDark ? 'text-[#667085]' : 'text-[#98A2B3]'}`}>
-                            API 配置
-                        </div>
-                        <div className={`rounded-[24px] border p-4 ${isDark ? 'border-[#2A3140] bg-[#161A22]' : 'border-[#E4E7EC] bg-[#F8FAFC]'}`}>
-                            <div className="grid gap-3 md:grid-cols-2">
-                                <select value={provider} onChange={(event) => handleProviderChange(event.target.value as AIProvider)} className={inputClass}>
-                                    <option value="google">Google</option>
-                                    <option value="openai">OpenAI</option>
-                                    <option value="anthropic">Anthropic</option>
-                                    <option value="qwen">Qwen</option>
-                                    <option value="stability">Stability</option>
-                                    <option value="banana">Banana</option>
-                                    <option value="custom">Custom</option>
-                                </select>
-                                <input value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder="备注名称（可选）" className={inputClass} />
+                        <div className="flex items-center justify-between">
+                            <div className={`text-xs font-semibold uppercase tracking-[0.18em] ${isDark ? 'text-[#667085]' : 'text-[#98A2B3]'}`}>
+                                API 配置
                             </div>
-
-                            <div className="mt-3 space-y-3">
-                                <div className="flex gap-2">
-                                    <input
-                                        value={apiKey}
-                                        onChange={(event) => setApiKey(event.target.value)}
-                                        type={showKey ? 'text' : 'password'}
-                                        placeholder="粘贴 API Key"
-                                        className={inputClass}
-                                    />
-                                    <button type="button" onClick={() => setShowKey(prev => !prev)} className={chipClass}>
-                                        {showKey ? '隐藏' : '显示'}
-                                    </button>
-                                </div>
-
-                                <input value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} placeholder="Base URL（可选）" className={inputClass} />
-
-                                <div>
-                                    <div className={`mb-2 text-sm font-medium ${isDark ? 'text-[#D0D5DD]' : 'text-[#344054]'}`}>这个 API 用于</div>
-                                    <div className="flex flex-wrap gap-2">
-                                        {(['text', 'image', 'video', 'agent'] as AICapability[]).map(capability => (
-                                            <button
-                                                key={capability}
-                                                type="button"
-                                                onClick={() => toggleCapability(capability)}
-                                                className={`${chipClass} ${
-                                                    capabilities.includes(capability)
-                                                        ? isDark
-                                                            ? 'border-[#4B5B78] bg-[#1B2330] text-[#7CB4FF]'
-                                                            : 'border-[#1D4ED8] bg-[#EFF6FF] text-[#1D4ED8]'
-                                                        : ''
-                                                }`}
-                                            >
-                                                {capabilityLabels[capability]}
-                                            </button>
-                                        ))}
-                                    </div>
-                                </div>
-
-                                <button
-                                    type="button"
-                                    onClick={handleSaveKey}
-                                    disabled={!apiKey.trim() || capabilities.length === 0 || isValidating}
-                                    className={`rounded-full px-4 py-2.5 text-sm font-medium transition disabled:cursor-not-allowed ${
-                                        isDark
-                                            ? 'bg-[#F3F4F6] text-[#111827] hover:bg-white disabled:bg-[#3A4458] disabled:text-[#98A2B3]'
-                                            : 'bg-[#111827] text-white hover:bg-[#0F172A] disabled:bg-[#D0D5DD]'
-                                    }`}
-                                >
-                                    {isValidating ? '验证中...' : '验证并保存'}
-                                </button>
-
-                                {validationResult && (
-                                    <div className={`mt-2 rounded-xl px-3 py-2 text-sm ${
-                                        validationResult.ok
-                                            ? isDark ? 'bg-[#123524] text-[#75E0A7]' : 'bg-[#ECFDF3] text-[#027A48]'
-                                            : isDark ? 'bg-[#3A1616] text-[#FDA29B]' : 'bg-[#FEF3F2] text-[#B42318]'
-                                    }`}>
-                                        {validationResult.ok
-                                            ? '✓ Key 验证通过，已保存'
-                                            : `✗ 验证失败：${validationResult.message || 'API Key 无效'}`
-                                        }
-                                    </div>
-                                )}
-                            </div>
+                            <button
+                                type="button"
+                                onClick={() => { setEditingKeyId(null); setApiKey(''); setDisplayName(''); setProvider('google'); setBaseUrl(providerBaseUrl.google); setCapabilities(['text', 'image', 'video']); setValidationResult(null); setShowKeyModal(true); }}
+                                className={`rounded-full border px-3 py-1.5 text-xs font-medium transition ${
+                                    isDark ? 'border-[#4B5B78] bg-[#1B2330] text-[#B2CCFF] hover:bg-[#252C39]' : 'border-[#B2CCFF] bg-[#EEF4FF] text-[#175CD3] hover:bg-[#DBEAFE]'
+                                }`}
+                            >
+                                + 添加 API Key
+                            </button>
                         </div>
 
                         <div className="space-y-2">
@@ -406,12 +380,14 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
                                 }`}>
                                     <div className="mb-2 text-lg">🔑</div>
                                     <div className="font-medium">还没有配置 API Key</div>
-                                    <div className="mt-1 text-xs">在上方选择供应商、粘贴 Key，点击「验证并保存」即可开始使用 AI 能力</div>
+                                    <div className="mt-1 text-xs">点击右上方「+ 添加 API Key」按钮开始配置</div>
                                 </div>
                             ) : (
                                 userApiKeys.map(item => (
                                     <div key={item.id} className={`flex items-center justify-between rounded-2xl border px-4 py-3 ${
-                                        isDark ? 'border-[#2A3140] bg-[#161A22]' : 'border-[#E4E7EC] bg-white'
+                                        editingKeyId === item.id
+                                            ? isDark ? 'border-[#4B5B78] bg-[#1B2330]' : 'border-[#1D4ED8] bg-[#EFF6FF]'
+                                            : isDark ? 'border-[#2A3140] bg-[#161A22]' : 'border-[#E4E7EC] bg-white'
                                     }`}>
                                         <div className="min-w-0">
                                             <div className="flex items-center gap-2">
@@ -419,6 +395,11 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
                                                     item.status === 'ok' ? 'bg-green-500' : item.status === 'error' ? 'bg-red-400' : 'bg-yellow-400'
                                                 }`} title={item.status === 'ok' ? '已验证' : item.status === 'error' ? '验证失败' : '未验证'} />
                                                 <span className={`truncate text-sm font-medium ${isDark ? 'text-[#F3F4F6]' : 'text-[#101828]'}`}>{item.name || item.provider}</span>
+                                                {editingKeyId === item.id && (
+                                                    <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
+                                                        isDark ? 'bg-[#1B2330] text-[#7CB4FF]' : 'bg-[#EFF6FF] text-[#1D4ED8]'
+                                                    }`}>编辑中</span>
+                                                )}
                                             </div>
                                             <div className={`mt-1 text-xs ${isDark ? 'text-[#98A2B3]' : 'text-[#667085]'}`}>{maskKey(item.key)}</div>
                                             <div className="mt-2 flex flex-wrap gap-1.5">
@@ -443,6 +424,15 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
                                                     默认
                                                 </span>
                                             )}
+                                            <button
+                                                type="button"
+                                                onClick={() => handleStartEdit(item)}
+                                                className={`rounded-full border px-3 py-2 text-xs font-medium ${
+                                                    isDark ? 'border-[#2A3140] text-[#D0D5DD] hover:bg-[#252C39]' : 'border-[#E4E7EC] text-[#475467] hover:bg-[#F2F4F7]'
+                                                }`}
+                                            >
+                                                编辑
+                                            </button>
                                             <button
                                                 type="button"
                                                 onClick={() => onDeleteApiKey(item.id)}
@@ -490,6 +480,36 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
                             </label>
                         </div>
                     </section>
+
+                    {/* Security section */}
+                    <section className="space-y-3">
+                        <div className={`text-xs font-semibold uppercase tracking-[0.18em] ${isDark ? 'text-[#667085]' : 'text-[#98A2B3]'}`}>
+                            🔒 安全
+                        </div>
+                        <label className={`flex cursor-pointer items-center justify-between rounded-2xl p-4 ${isDark ? 'bg-[#161A22]' : 'bg-[#F8FAFC]'}`}>
+                            <div>
+                                <div className={`text-sm font-medium ${isDark ? 'text-[#D0D5DD]' : 'text-[#344054]'}`}>关闭页面时清除 API Key</div>
+                                <div className={`mt-1 text-xs ${isDark ? 'text-[#667085]' : 'text-[#98A2B3]'}`}>启用后每次关闭浏览器标签页将自动清除保存的 API Key，下次访问需重新输入</div>
+                            </div>
+                            <div
+                                role="switch"
+                                aria-checked={clearKeysOnExit}
+                                tabIndex={0}
+                                onClick={() => setClearKeysOnExit(!clearKeysOnExit)}
+                                onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setClearKeysOnExit(!clearKeysOnExit); } }}
+                                className={`relative ml-4 inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors ${
+                                    clearKeysOnExit
+                                        ? 'bg-green-500'
+                                        : isDark ? 'bg-[#3A4458]' : 'bg-[#D0D5DD]'
+                                }`}
+                            >
+                                <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform ${clearKeysOnExit ? 'translate-x-6' : 'translate-x-1'}`} />
+                            </div>
+                        </label>
+                        <div className={`rounded-2xl border p-3 text-xs ${isDark ? 'border-[#2A3140] text-[#667085]' : 'border-[#E4E7EC] text-[#98A2B3]'}`}>
+                            ✅ API Key 已加密存储（AES-GCM），不再以明文保留在 localStorage 中。
+                        </div>
+                    </section>
                 </div>
             </div>
 
@@ -502,6 +522,117 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
                     onClose={() => { setShowConfigForm(false); setEditingConfig(null); }}
                     isDark={isDark}
                 />
+            )}
+
+            {/* API Key 添加/编辑弹窗 */}
+            {showKeyModal && (
+                <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/40 backdrop-blur-sm" onClick={handleCancelEdit}>
+                    <div
+                        className={`relative w-[90%] max-w-[440px] rounded-[24px] border p-6 shadow-[0_40px_100px_rgba(0,0,0,0.2)] ${
+                            isDark ? 'border-[#2A3140] bg-[#12151B]' : 'border-[#E4E7EC] bg-white'
+                        }`}
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <div className="mb-4 flex items-center justify-between">
+                            <h4 className={`text-base font-semibold ${isDark ? 'text-[#F3F4F6]' : 'text-[#101828]'}`}>
+                                {editingKeyId ? '编辑 API Key' : '添加 API Key'}
+                            </h4>
+                            <button type="button" onClick={handleCancelEdit} className={`rounded-full p-1.5 transition ${isDark ? 'hover:bg-[#252C39]' : 'hover:bg-[#F2F4F7]'}`}>
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 6 6 18M6 6l12 12" /></svg>
+                            </button>
+                        </div>
+
+                        <div className="space-y-3">
+                            <div className="grid gap-3 md:grid-cols-2">
+                                <select value={provider} onChange={(event) => handleProviderChange(event.target.value as AIProvider)} className={inputClass}>
+                                    <option value="google">Google</option>
+                                    <option value="openai">OpenAI</option>
+                                    <option value="anthropic">Anthropic</option>
+                                    <option value="qwen">Qwen</option>
+                                    <option value="stability">Stability</option>
+                                    <option value="banana">Banana</option>
+                                    <option value="custom">Custom</option>
+                                </select>
+                                <input value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder="备注名称（可选）" className={inputClass} />
+                            </div>
+
+                            <div className="flex gap-2">
+                                <input
+                                    value={apiKey}
+                                    onChange={(event) => setApiKey(event.target.value)}
+                                    type={showKey ? 'text' : 'password'}
+                                    placeholder="粘贴 API Key"
+                                    className={inputClass}
+                                    autoFocus
+                                />
+                                <button type="button" onClick={() => setShowKey(prev => !prev)} className={chipClass}>
+                                    {showKey ? '隐藏' : '显示'}
+                                </button>
+                            </div>
+
+                            <input value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} placeholder="Base URL（可选）" className={inputClass} />
+
+                            <div>
+                                <div className={`mb-2 text-sm font-medium ${isDark ? 'text-[#D0D5DD]' : 'text-[#344054]'}`}>这个 API 用于</div>
+                                <div className="flex flex-wrap gap-2">
+                                    {(['text', 'image', 'video', 'agent'] as AICapability[]).map(capability => (
+                                        <button
+                                            key={capability}
+                                            type="button"
+                                            onClick={() => toggleCapability(capability)}
+                                            className={`${chipClass} ${
+                                                capabilities.includes(capability)
+                                                    ? isDark
+                                                        ? 'border-[#4B5B78] bg-[#1B2330] text-[#7CB4FF]'
+                                                        : 'border-[#1D4ED8] bg-[#EFF6FF] text-[#1D4ED8]'
+                                                    : ''
+                                            }`}
+                                        >
+                                            {capabilityLabels[capability]}
+                                        </button>
+                                    ))}
+                                </div>
+                            </div>
+
+                            <div className="flex items-center gap-2 pt-1">
+                                <button
+                                    type="button"
+                                    onClick={handleSaveKey}
+                                    disabled={!apiKey.trim() || capabilities.length === 0 || isValidating}
+                                    className={`flex-1 rounded-full px-4 py-2.5 text-sm font-medium transition disabled:cursor-not-allowed ${
+                                        isDark
+                                            ? 'bg-[#F3F4F6] text-[#111827] hover:bg-white disabled:bg-[#3A4458] disabled:text-[#98A2B3]'
+                                            : 'bg-[#111827] text-white hover:bg-[#0F172A] disabled:bg-[#D0D5DD]'
+                                    }`}
+                                >
+                                    {isValidating ? '验证中...' : editingKeyId ? '验证并更新' : '验证并保存'}
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={handleCancelEdit}
+                                    className={`rounded-full border px-4 py-2.5 text-sm font-medium transition ${
+                                        isDark ? 'border-[#2A3140] text-[#D0D5DD] hover:bg-[#252C39]' : 'border-[#E4E7EC] text-[#475467] hover:bg-[#F2F4F7]'
+                                    }`}
+                                >
+                                    取消
+                                </button>
+                            </div>
+
+                            {validationResult && (
+                                <div className={`rounded-xl px-3 py-2 text-sm ${
+                                    validationResult.ok
+                                        ? isDark ? 'bg-[#123524] text-[#75E0A7]' : 'bg-[#ECFDF3] text-[#027A48]'
+                                        : isDark ? 'bg-[#3A1616] text-[#FDA29B]' : 'bg-[#FEF3F2] text-[#B42318]'
+                                }`}>
+                                    {validationResult.ok
+                                        ? '✓ Key 验证通过，已保存'
+                                        : `✗ 验证失败：${validationResult.message || 'API Key 无效'}`
+                                    }
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                </div>
             )}
         </div>
     );

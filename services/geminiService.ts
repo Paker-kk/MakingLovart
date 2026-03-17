@@ -12,7 +12,7 @@
  * 3. generateVideo: 图片生成视频（基于 Veo 2.0）
  * 
  * 【使用的 AI 模型】
- * - gemini-2.5-flash-image-preview: 图像编辑和生成
+ * - gemini-2.5-flash-image: 图像编辑和生成
  * - imagen-4.0-generate-001: 文本直接生成图像
  * - veo-2.0-generate-001: 视频生成
  * 
@@ -53,7 +53,20 @@ export function setGeminiRuntimeConfig(config: {
   runtimeConfig = { ...runtimeConfig, ...config };
 }
 
-function getApiKey(capability: "text" | "image" | "video" = "text"): string {
+/**
+ * 【函数】获取 API Key
+ *
+ * 按优先级解析可用的 API Key：
+ *   1. explicitKey（函数参数显式传入，来自 aiGateway 路由）
+ *   2. runtimeConfig 中对应 capability 的 key
+ *   3. runtimeConfig 中其他 capability 的 key（回退链）
+ *   4. 环境变量 process.env.API_KEY（.env 文件配置）
+ *
+ * @param capability - 使用场景：text（LLM 润色）、image（图片生成/编辑）、video（视频生成）
+ * @param explicitKey - 可选的显式 API Key，优先级最高
+ */
+function getApiKey(capability: "text" | "image" | "video" = "text", explicitKey?: string): string {
+  if (explicitKey) return explicitKey;
   const scopedKey =
     capability === "text"
       ? runtimeConfig.textApiKey
@@ -71,8 +84,13 @@ function getApiKey(capability: "text" | "image" | "video" = "text"): string {
   return key;
 }
 
-function getClient(capability: "text" | "image" | "video" = "text") {
-  return new GoogleGenAI({ apiKey: getApiKey(capability) });
+/**
+ * 【函数】创建 Google GenAI 客户端实例
+ * @param capability - 使用场景
+ * @param explicitKey - 可选的显式 API Key
+ */
+function getClient(capability: "text" | "image" | "video" = "text", explicitKey?: string) {
+  return new GoogleGenAI({ apiKey: getApiKey(capability, explicitKey) });
 }
 
 /**
@@ -129,7 +147,7 @@ function safeParseEnhanceJson(raw: string, fallbackPrompt: string): PromptEnhanc
   }
 }
 
-export async function enhancePromptWithGemini(request: PromptEnhanceRequest): Promise<PromptEnhanceResult> {
+export async function enhancePromptWithGemini(request: PromptEnhanceRequest, apiKey?: string): Promise<PromptEnhanceResult> {
   const modeHintMap: Record<PromptEnhanceRequest["mode"], string> = {
     smart: "Do intelligent enhancement with richer cinematic details, composition, and lighting.",
     style: `Rewrite with strong style intent. Preferred style preset: ${request.stylePreset || "cinematic"}.`,
@@ -147,7 +165,7 @@ export async function enhancePromptWithGemini(request: PromptEnhanceRequest): Pr
   ].join("\n");
 
   try {
-    const ai = getClient("text");
+    const ai = getClient("text", apiKey);
     const model = runtimeConfig.textModel || "gemini-2.5-pro";
     const response: GenerateContentResponse = await ai.models.generateContent({
       model,
@@ -214,7 +232,8 @@ type ImageInput = {
 export async function editImage(
   images: ImageInput[], 
   prompt: string,
-  mask?: ImageInput
+  mask?: ImageInput,
+  apiKey?: string
 ): Promise<{ newImageBase64: string | null; newImageMimeType: string | null; textResponse: string | null; }> {
   
   // 步骤1：转换图片格式 - 提取 base64 数据
@@ -248,10 +267,10 @@ export async function editImage(
     : [...imageParts, textPart];            // 无遮罩：图片+提示词
 
   try {
-    const ai = getClient("image");
+    const ai = getClient("image", apiKey);
     // 步骤5：调用 Gemini API
     const response: GenerateContentResponse = await ai.models.generateContent({
-      model: runtimeConfig.imageModel || 'gemini-2.5-flash-image-preview',  // 使用 Gemini 2.5 Flash 图像模型
+      model: runtimeConfig.imageModel || 'gemini-2.5-flash-image',  // 使用 Gemini 2.5 Flash 图像模型
       contents: {
         parts: parts,  // 传入组装好的内容
       },
@@ -340,9 +359,9 @@ export async function editImage(
  * - 不需要输入图片，纯文本生成
  * - 生成速度较快
  */
-export async function generateImageFromText(prompt: string): Promise<{ newImageBase64: string | null; newImageMimeType: string | null; textResponse: string | null; }> {
+export async function generateImageFromText(prompt: string, apiKey?: string): Promise<{ newImageBase64: string | null; newImageMimeType: string | null; textResponse: string | null; }> {
   try {
-    const ai = getClient("image");
+    const ai = getClient("image", apiKey);
     const response = await ai.models.generateImages({
         model: runtimeConfig.textToImageModel || 'imagen-4.0-generate-001',  // 使用 Imagen 4.0 模型
         prompt: prompt,
@@ -420,9 +439,10 @@ export async function generateVideo(
   prompt: string,
   aspectRatio: '16:9' | '9:16',
   onProgress: (message: string) => void,
-  image?: ImageInput
+  image?: ImageInput,
+  apiKey?: string
 ): Promise<{ videoBlob: Blob; mimeType: string }> {
-  const ai = getClient("video");
+  const ai = getClient("video", apiKey);
   // 步骤1：初始化
   onProgress('Initializing video generation...');
   
@@ -475,7 +495,7 @@ export async function generateVideo(
 
   // 步骤8：下载视频文件
   onProgress('Downloading generated video...');
-  const response = await fetch(`${downloadLink}&key=${getApiKey("video")}`);
+  const response = await fetch(`${downloadLink}&key=${getApiKey("video", apiKey)}`);
   if (!response.ok) {
     throw new Error(`Failed to download video: ${response.statusText}`);
   }

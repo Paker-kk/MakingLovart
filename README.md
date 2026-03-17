@@ -64,7 +64,7 @@ cp env.example .env
 npm run dev
 ```
 
-Open [http://localhost:5173](http://localhost:5173) and start creating 🎉
+Open [http://localhost:3000](http://localhost:3000) and start creating 🎉
 
 ---
 
@@ -80,13 +80,13 @@ Open [http://localhost:5173](http://localhost:5173) and start creating 🎉
 - **文生图**: 输入提示词，Gemini / DALL-E / SDXL 直接生成图片到画布
 - **图生图**: 选中画布上的图片 + 提示词 → AI 编辑
 - **文生视频**: Veo 2.0 视频生成，支持 16:9 / 9:16
-- **首尾帧动画**: 关键帧模式生成过渡动画
+- **首尾帧动画**: 选中或 @引用起始帧图片，Veo 自动生成过渡动画视频
 - **LLM 提示词润色**: 一键开关自动润色，生成前用 AI 优化你的提示词
 
 ### 📎 @Mention 引用系统
 - 在输入框中 `@` 引用画布上的任意元素
-- 支持 `@图片1 和 @图片2 生成新视频` 多图引用工作流
-- 引用的元素自动作为参考图注入生成流程
+- @引用的图片自动作为参考图注入生成流程
+- 视频模式下优先使用选中图片或首张 @引用图片作为参考帧
 
 ### 🔑 多 Provider API 管理
 - 支持 **Google (Gemini/Imagen/Veo)**、**OpenAI (GPT/DALL-E)**、**Anthropic (Claude)**、**Stability (SDXL)**、**Qwen**、**Banana** 等多家 AI 服务
@@ -132,27 +132,40 @@ MakingLovart/
 ├── App.tsx                    # 主应用（画布、状态、生成逻辑）
 ├── index.tsx                  # 入口文件
 ├── types.ts                   # 全局类型定义
-├── translations.ts            # 国际化文案
-├── styles.css                 # 全局样式 & CSS 变量
+├── translations.ts            # 国际化文案（中/英双语）
+├── styles.css                 # 全局样式 & CSS 变量（亮色/暗色主题）
 ├── components/
-│   ├── PromptBar.tsx          # 底部智能输入栏
-│   ├── Toolbar.tsx            # 左侧工具栏
+│   ├── PromptBar.tsx          # 底部智能输入栏（模式切换、模型选择、@mention）
+│   ├── Toolbar.tsx            # 左侧工具栏（绘制、形状、文字等）
+│   ├── WorkspaceSidebar.tsx   # 左侧面板（画板管理 + 图层面板）
+│   ├── RightPanel.tsx         # 右侧面板（生成设置 + 灵感/素材库）
 │   ├── CanvasSettings.tsx     # 设置面板 & API Key 管理
 │   ├── LayerPanel.tsx         # 图层管理面板
 │   ├── InspirationPanel.tsx   # 灵感 & 历史面板
-│   ├── AssetLibraryPanel.tsx  # 素材库
+│   ├── AssetLibraryPanel.tsx  # 素材库面板
+│   ├── BoardPanel.tsx         # 画板管理面板
 │   ├── RichPromptEditor.tsx   # Tiptap 富文本编辑器
 │   ├── CanvasMentionExtension.tsx  # @mention 扩展
 │   ├── MentionList.tsx        # @mention 下拉列表
-│   └── ...
+│   ├── QuickPrompts.tsx       # 快捷提示词模板
+│   ├── NodeWorkflowPanel.tsx  # 节点工作流面板
+│   ├── ConfigManager/         # API Key 配置管理组件
+│   └── nodeflow/              # 节点编辑器内核
 ├── services/
-│   ├── geminiService.ts       # Google Gemini/Imagen/Veo API
+│   ├── geminiService.ts       # Google Gemini/Imagen/Veo API 封装
 │   ├── aiGateway.ts           # 多 Provider 路由网关
 │   └── bananaService.ts       # Banana Vision Agent
 ├── utils/
-│   ├── assetStorage.ts        # 素材持久化
+│   ├── assetStorage.ts        # 素材持久化（localStorage）
 │   ├── fileUtils.ts           # 文件处理工具
-│   └── generationHistory.ts   # 生成历史管理
+│   ├── generationHistory.ts   # 生成历史管理
+│   └── uiScale.ts            # 响应式 UI 缩放指标
+├── tests/                     # 自动化测试
+│   ├── aiGateway.test.ts
+│   ├── aiGatewayValidation.test.ts
+│   ├── geminiService.test.ts
+│   ├── generationHistory.test.ts
+│   └── types.test.ts
 ├── Dockerfile                 # 多阶段 Docker 构建
 ├── docker-compose.yml         # Docker Compose 编排
 └── nginx.conf                 # Nginx 生产配置

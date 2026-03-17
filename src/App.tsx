@@ -1526,4 +1526,14 @@ const App: React.FC = () => {
 
     const handleUngroup = () => {
         if (selectedElementIds.length !== 1) return;
-        const groupId =
+        const groupId = selectedElementIds[0];
+        const group = elements.find(el => el.id === groupId);
+        if (!group || group.type !== 'group') return;
+        commitAction(prev =>
+            prev
+                .map(el => (el.parentId === groupId ? { ...el, parentId: undefined } : el))
+                .filter(el => el.id !== groupId)
+        );
+        setSelectedElementIds([]);
+        setContextMenu(null);
+    };
