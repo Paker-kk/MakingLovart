@@ -11,6 +11,9 @@ import type {
 } from '../types';
 import type { APIConfig, ModelItem } from '../src/types/api-config';
 import { ConfigSelector } from './ConfigManager/ConfigSelector';
+import RichPromptEditor, { type RichPromptEditorHandle } from './RichPromptEditor';
+import type { MentionItem } from './MentionList';
+import { extractMentions } from './CanvasMentionExtension';
 
 interface PromptBarProps {
     t: (key: string, ...args: any[]) => string;
@@ -64,8 +67,6 @@ interface PromptBarProps {
 }
 
 type ExpandPanel = 'mode' | 'model' | 'more' | null;
-type MentionState = { start: number; end: number; query: string } | null;
-type MentionOption = { id: string; label: string; element: Element };
 
 const TYPE_LABELS: Record<Element['type'], string> = {
     image: '图片',
@@ -90,28 +91,6 @@ function getModeLabel(mode: GenerationMode): string {
 
 function getModelLabel(mode: GenerationMode, imageModel?: string, videoModel?: string): string {
     return mode === 'video' ? videoModel || '选择视频模型' : imageModel || '选择图片模型';
-}
-
-function renderPreview(element: Element) {
-    if (element.type === 'image') {
-        return <img src={element.href} alt={getElementLabel(element)} className="h-full w-full object-cover" />;
-    }
-
-    if (element.type === 'video') {
-        return (
-            <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-[#111827] to-[#374151] text-white">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
-                    <path d="M8 5.14v13.72c0 .83.9 1.35 1.62.94l10.2-5.86a1.08 1.08 0 0 0 0-1.88l-10.2-5.86A1.08 1.08 0 0 0 8 5.14Z" />
-                </svg>
-            </div>
-        );
-    }
-
-    return (
-        <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-[#E2E8F0] to-[#CBD5E1] text-[#475467]">
-            <span className="text-[11px] font-semibold uppercase">{TYPE_LABELS[element.type].slice(0, 1)}</span>
-        </div>
-    );
 }
 
 const PopoverHeader: React.FC<{ title: string; subtitle?: string }> = ({ title, subtitle }) => (
@@ -191,14 +170,11 @@ export const PromptBar: React.FC<PromptBarProps> = ({
 }) => {
     const isDark = theme === 'dark';
     const rootRef = useRef<HTMLDivElement>(null);
-    const textareaRef = useRef<HTMLTextAreaElement>(null);
+    const richEditorRef = useRef<RichPromptEditorHandle>(null);
     const fileInputRef = useRef<HTMLInputElement>(null);
     const dragDepthRef = useRef(0);
 
     const [expandedPanel, setExpandedPanel] = useState<ExpandPanel>(null);
-    const [mentionState, setMentionState] = useState<MentionState>(null);
-    const [mentionIndex, setMentionIndex] = useState(0);
-    const [selectedMentionIds, setSelectedMentionIds] = useState<string[]>([]);
     const [isDragActive, setIsDragActive] = useState(false);
 
     const triggerClass = `inline-flex ${compactMode ? 'h-7 gap-1 px-2.5 text-[11px]' : 'h-8 gap-1.5 px-3 text-xs'} items-center rounded-full border font-medium transition ${
@@ -209,92 +185,58 @@ export const PromptBar: React.FC<PromptBarProps> = ({
         isDark ? 'border-[#2A3140] bg-[#161A22]' : 'border-[#E5E7EB] bg-white'
     }`;
     const shellClass = `${compactMode ? 'rounded-[18px]' : 'rounded-[20px]'} ${isDark ? 'border-[#2A3140] bg-[#12151B] shadow-[0_20px_50px_rgba(0,0,0,0.24)]' : 'border-[#E4E7EC] bg-white shadow-[0_20px_50px_rgba(15,23,42,0.10)]'}`;
-    const textareaClass = isDark ? `${compactMode ? 'min-h-[42px] text-[13px] leading-5' : 'min-h-[48px] text-[14px] leading-6'} w-full resize-none border-none bg-transparent px-0 py-0 text-[#F8FAFC] outline-none placeholder:text-[#667085]` : `${compactMode ? 'min-h-[42px] text-[13px] leading-5' : 'min-h-[48px] text-[14px] leading-6'} w-full resize-none border-none bg-transparent px-0 py-0 text-[#111827] outline-none placeholder:text-[#C2CAD7]`;
 
-    const mentionOptions = useMemo<MentionOption[]>(() => canvasElements.filter(element => element.isVisible !== false).map(element => ({
-        id: element.id,
-        label: getElementLabel(element),
-        element,
-    })), [canvasElements]);
-
-    const mentionMap = useMemo(() => new Map(mentionOptions.map(item => [item.id, item])), [mentionOptions]);
-    const selectedMentionItems = useMemo(
-        () => selectedMentionIds.map(id => mentionMap.get(id)).filter((item): item is MentionOption => !!item),
-        [mentionMap, selectedMentionIds]
+    /** 将画布元素转换为 RichPromptEditor 需要的 MentionItem[] */
+    const canvasItems = useMemo<MentionItem[]>(() =>
+        canvasElements
+            .filter(el => el.isVisible !== false)
+            .map(el => ({
+                id: el.id,
+                label: getElementLabel(el),
+                thumbnail: el.type === 'image' ? el.href : '',
+                elementType: el.type,
+            })),
+        [canvasElements]
     );
-    const filteredMentions = useMemo(() => {
-        if (!mentionState) return [];
-        const query = mentionState.query.trim().toLowerCase();
-        return mentionOptions
-            .filter(item => (!query || item.label.toLowerCase().includes(query)) && !selectedMentionIds.includes(item.id))
-            .slice(0, 8);
-    }, [mentionOptions, mentionState, selectedMentionIds]);
+
     const currentModelOptions = generationMode === 'video' ? videoModelOptions : imageModelOptions;
     const placeholder = useMemo(() => {
-        if (!isSelectionActive) return '今天我们要创作什么';
+        if (!isSelectionActive) return '使用 @ 引用画布中的图片，例如：把 @图片1 的人物替换为 @图片2 的兔子';
         if (selectedElementCount === 1) return '描述你想对当前元素做什么';
         return `已选中 ${selectedElementCount} 个元素，补充组合生成描述`;
     }, [isSelectionActive, selectedElementCount]);
+
+    /** 编辑器文本 + mention 变化时同步到父组件 */
+    const handleEditorChange = useCallback((plainText: string, json: Record<string, unknown>) => {
+        setPrompt(plainText);
+        const mentions = extractMentions(json);
+        const uniqueIds = [...new Set(mentions.map(m => m.id))];
+        onMentionedElementIds?.(uniqueIds);
+    }, [setPrompt, onMentionedElementIds]);
+
+    /** 编辑器 Enter 提交 */
+    const handleEditorSubmit = useCallback(() => {
+        if (prompt.trim() && !isLoading) onGenerate();
+    }, [prompt, isLoading, onGenerate]);
+
+    /** 外部 prompt 被清空时（如切换画板、生成完成后），同步清空富文本编辑器 */
+    useEffect(() => {
+        if (!prompt && richEditorRef.current) {
+            const editorText = richEditorRef.current.getText();
+            if (editorText) richEditorRef.current.clear();
+        }
+    }, [prompt]);
 
     useEffect(() => {
         const handleOutsideClick = (event: MouseEvent) => {
             if (rootRef.current && !rootRef.current.contains(event.target as Node)) {
                 setExpandedPanel(null);
-                setMentionState(null);
             }
         };
 
         document.addEventListener('mousedown', handleOutsideClick);
         return () => document.removeEventListener('mousedown', handleOutsideClick);
     }, []);
-
-    useEffect(() => {
-        const textarea = textareaRef.current;
-        if (!textarea) return;
-        textarea.style.height = '0px';
-        textarea.style.height = `${Math.min(160, Math.max(48, textarea.scrollHeight))}px`;
-    }, [prompt]);
-
-    useEffect(() => setMentionIndex(0), [mentionState?.query]);
-    useEffect(() => setSelectedMentionIds(prev => prev.filter(id => mentionMap.has(id))), [mentionMap]);
-    useEffect(() => onMentionedElementIds?.(selectedMentionIds), [onMentionedElementIds, selectedMentionIds]);
-
-    const syncMentionState = useCallback((value: string, cursor: number) => {
-        const before = value.slice(0, cursor);
-        const atIndex = before.lastIndexOf('@');
-
-        if (atIndex < 0) {
-            setMentionState(null);
-            return;
-        }
-
-        const prevChar = atIndex === 0 ? ' ' : before[atIndex - 1];
-        if (atIndex > 0 && !/\s/.test(prevChar)) {
-            setMentionState(null);
-            return;
-        }
-
-        const token = before.slice(atIndex + 1);
-        if (/[\s\n]/.test(token)) {
-            setMentionState(null);
-            return;
-        }
-
-        setMentionState({ start: atIndex, end: cursor, query: token });
-    }, []);
-
-    const insertMention = useCallback((item: MentionOption) => {
-        if (!mentionState || !textareaRef.current) return;
-        const nextPrompt = `${prompt.slice(0, mentionState.start)}${prompt.slice(mentionState.end)}`;
-        setPrompt(nextPrompt);
-        setSelectedMentionIds(prev => (prev.includes(item.id) ? prev : [...prev, item.id]));
-        setMentionState(null);
-
-        requestAnimationFrame(() => {
-            textareaRef.current?.focus();
-            textareaRef.current?.setSelectionRange(mentionState.start, mentionState.start);
-        });
-    }, [mentionState, prompt, setPrompt]);
 
     const handleSaveEffect = useCallback(() => {
         if (!prompt.trim()) return;
@@ -368,131 +310,55 @@ export const PromptBar: React.FC<PromptBarProps> = ({
                     </div>
                 )}
 
-                <div className={`relative ${compactMode ? 'px-3 pt-2.5' : 'px-3.5 pt-3'}`}>
-                    <textarea
-                        ref={textareaRef}
-                        value={prompt}
-                        onChange={event => {
-                            setPrompt(event.target.value);
-                            syncMentionState(event.target.value, event.target.selectionStart);
-                        }}
-                        onBlur={() => window.setTimeout(() => setMentionState(null), 120)}
-                        onKeyDown={event => {
-                            if (mentionState && filteredMentions.length > 0) {
-                                if (event.key === 'ArrowDown') {
-                                    event.preventDefault();
-                                    setMentionIndex(prev => (prev + 1) % filteredMentions.length);
-                                    return;
-                                }
-                                if (event.key === 'ArrowUp') {
-                                    event.preventDefault();
-                                    setMentionIndex(prev => (prev - 1 + filteredMentions.length) % filteredMentions.length);
-                                    return;
-                                }
-                                if (event.key === 'Enter' && !event.shiftKey) {
-                                    event.preventDefault();
-                                    insertMention(filteredMentions[mentionIndex]);
-                                    return;
-                                }
-                                if (event.key === 'Escape') {
-                                    setMentionState(null);
-                                    return;
-                                }
-                            }
-
-                            if (event.key === 'Enter' && !event.shiftKey) {
-                                event.preventDefault();
-                                if (prompt.trim() && !isLoading) onGenerate();
-                            }
-                        }}
+                <div
+                    className={`relative ${compactMode ? 'px-3 pt-2.5' : 'px-3.5 pt-3'}`}
+                    style={{
+                        '--prompt-editor-color': isDark ? '#F8FAFC' : '#111827',
+                        '--prompt-editor-placeholder': isDark ? '#667085' : '#C2CAD7',
+                        '--prompt-editor-caret': isDark ? '#818CF8' : '#4f46e5',
+                        '--prompt-editor-scrollbar': isDark ? '#2A3140' : '#e5e7eb',
+                        '--prompt-editor-min-height': compactMode ? '42px' : '48px',
+                        '--prompt-editor-font-size': compactMode ? '13px' : '14px',
+                        '--prompt-editor-line-height': compactMode ? '1.4' : '1.5',
+                    } as React.CSSProperties}
+                >
+                    <RichPromptEditor
+                        ref={richEditorRef}
+                        canvasItems={canvasItems}
                         placeholder={placeholder}
-                        className={textareaClass}
+                        onTextChange={handleEditorChange}
+                        onSubmit={handleEditorSubmit}
                     />
 
-                    {mentionState && filteredMentions.length > 0 && (
-                        <div className={`${popoverCardClass} top-[calc(100%_-_8px)] bottom-auto w-[320px]`}>
-                            <div className="px-2 pb-1 text-[10px] font-semibold uppercase tracking-[0.18em] text-[var(--text-subtle)]">Whiteboard References</div>
-                            <div className="space-y-0.5">
-                                {filteredMentions.map((item, index) => (
-                                    <button
-                                        key={item.id}
-                                        type="button"
-                                        onMouseDown={event => {
-                                            event.preventDefault();
-                                            insertMention(item);
-                                        }}
-                                        className={`flex w-full items-center gap-2.5 rounded-xl px-2.5 py-2 text-left transition ${index === mentionIndex ? 'bg-[var(--accent-bg)] text-[var(--accent-text)]' : 'text-[var(--text-secondary)] hover:bg-[var(--panel-muted)]'}`}
+                    {attachments.length > 0 && (
+                        <div className={`space-y-2 pb-1 ${compactMode ? 'mt-2' : 'mt-2.5'}`}>
+                            <div className="flex flex-wrap gap-1.5">
+                                {attachments.map(attachment => (
+                                    <div
+                                        key={attachment.id}
+                                        className={`group flex items-center gap-2 rounded-[14px] border px-2 py-1.5 transition-all duration-200 hover:-translate-y-0.5 ${isDark ? 'border-[#2A3140] bg-[#171C24]' : 'border-[#E4E7EC] bg-[#F8FAFC]'}`}
                                     >
-                                        <div className="h-8 w-8 overflow-hidden rounded-lg border border-[var(--border-color)] bg-[var(--panel-muted)]">{renderPreview(item.element)}</div>
-                                        <div className="min-w-0 flex-1">
-                                            <div className="truncate text-xs font-medium">@{item.label}</div>
-                                            <div className="mt-0.5 text-[11px] text-[var(--text-muted)]">{TYPE_LABELS[item.element.type]}</div>
+                                        <div className="h-8 w-8 overflow-hidden rounded-lg border border-[var(--border-color)] bg-white">
+                                            <img src={attachment.href} alt={attachment.name} className="h-full w-full object-cover" />
                                         </div>
-                                    </button>
+                                        <div className="min-w-0">
+                                            <div className={`max-w-[120px] truncate text-xs font-medium ${isDark ? 'text-[#F8FAFC]' : 'text-[#111827]'}`}>{attachment.name}</div>
+                                            <div className="text-[10px] text-[var(--text-muted)]">参考图</div>
+                                        </div>
+                                        <button
+                                            type="button"
+                                            onClick={() => onRemoveAttachment?.(attachment.id)}
+                                            className={`flex h-6 w-6 items-center justify-center rounded-full transition ${isDark ? 'text-[#98A2B3] hover:bg-[#202734] hover:text-white' : 'text-[#667085] hover:bg-white hover:text-[#111827]'}`}
+                                            title="移除参考图"
+                                        >
+                                            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                                <path d="M18 6 6 18" />
+                                                <path d="m6 6 12 12" />
+                                            </svg>
+                                        </button>
+                                    </div>
                                 ))}
                             </div>
-                        </div>
-                    )}
-
-                    {(attachments.length > 0 || selectedMentionItems.length > 0) && (
-                        <div className={`space-y-2 pb-1 ${compactMode ? 'mt-2' : 'mt-2.5'}`}>
-                            {attachments.length > 0 && (
-                                <div className="flex flex-wrap gap-1.5">
-                                    {attachments.map(attachment => (
-                                        <div
-                                            key={attachment.id}
-                                            className={`group flex items-center gap-2 rounded-[14px] border px-2 py-1.5 transition-all duration-200 hover:-translate-y-0.5 ${isDark ? 'border-[#2A3140] bg-[#171C24]' : 'border-[#E4E7EC] bg-[#F8FAFC]'}`}
-                                        >
-                                            <div className="h-8 w-8 overflow-hidden rounded-lg border border-[var(--border-color)] bg-white">
-                                                <img src={attachment.href} alt={attachment.name} className="h-full w-full object-cover" />
-                                            </div>
-                                            <div className="min-w-0">
-                                                <div className={`max-w-[120px] truncate text-xs font-medium ${isDark ? 'text-[#F8FAFC]' : 'text-[#111827]'}`}>{attachment.name}</div>
-                                                <div className="text-[10px] text-[var(--text-muted)]">参考图</div>
-                                            </div>
-                                            <button
-                                                type="button"
-                                                onClick={() => onRemoveAttachment?.(attachment.id)}
-                                                className={`flex h-6 w-6 items-center justify-center rounded-full transition ${isDark ? 'text-[#98A2B3] hover:bg-[#202734] hover:text-white' : 'text-[#667085] hover:bg-white hover:text-[#111827]'}`}
-                                                title="移除参考图"
-                                            >
-                                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                    <path d="M18 6 6 18" />
-                                                    <path d="m6 6 12 12" />
-                                                </svg>
-                                            </button>
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
-
-                            {selectedMentionItems.length > 0 && (
-                                <div className="flex flex-wrap gap-1.5">
-                                    {selectedMentionItems.map(item => (
-                                        <div
-                                            key={item.id}
-                                            className={`group flex items-center gap-2 rounded-[14px] border px-2 py-1.5 transition-all duration-200 hover:-translate-y-0.5 ${isDark ? 'border-[#34507A] bg-[#16202E]' : 'border-[#B2CCFF] bg-[#EEF4FF]'}`}
-                                        >
-                                            <div className="h-8 w-8 overflow-hidden rounded-lg border border-white/40 bg-white/70">{renderPreview(item.element)}</div>
-                                            <div className="min-w-0">
-                                                <div className={`max-w-[130px] truncate text-xs font-semibold ${isDark ? 'text-[#E0EAFF]' : 'text-[#175CD3]'}`}>@{item.label}</div>
-                                                <div className={`text-[10px] ${isDark ? 'text-[#9DB8E5]' : 'text-[#528BFF]'}`}>{TYPE_LABELS[item.element.type]} 引用</div>
-                                            </div>
-                                            <button
-                                                type="button"
-                                                onClick={() => setSelectedMentionIds(prev => prev.filter(id => id !== item.id))}
-                                                className={`flex h-6 w-6 items-center justify-center rounded-full transition ${isDark ? 'text-[#9DB8E5] hover:bg-[#202734] hover:text-white' : 'text-[#528BFF] hover:bg-white hover:text-[#175CD3]'}`}
-                                                title="移除引用"
-                                            >
-                                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                    <path d="M18 6 6 18" />
-                                                    <path d="m6 6 12 12" />
-                                                </svg>
-                                            </button>
-                                        </div>
-                                    ))}
-                                </div>
-                            )}
                         </div>
                     )}
                 </div>
