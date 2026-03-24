@@ -10,6 +10,15 @@ import type {
     PromptEnhanceResult,
     UserEffect,
 } from '../types';
+<<<<<<< Updated upstream
+=======
+import type { APIConfig, ModelItem } from '../src/types/api-config';
+import { useWorkspaceStore } from '../src/store/workspace-store';
+import { ConfigSelector } from './ConfigManager/ConfigSelector';
+import RichPromptEditor, { type RichPromptEditorHandle } from './RichPromptEditor';
+import type { MentionItem } from './MentionList';
+import { extractMentions } from './CanvasMentionExtension';
+>>>>>>> Stashed changes
 
 interface PromptBarProps {
     t: (key: string, ...args: any[]) => string;
@@ -124,11 +133,22 @@ export const PromptBar: React.FC<PromptBarProps> = ({
     const [enhanceError, setEnhanceError] = useState<string | null>(null);
 
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
     const canvasItems = useMemo<MentionItem[]>(
         () => canvasElements.filter(el => el.isVisible !== false).map(elementToMentionItem),
         [canvasElements]
 =======
     const triggerClass = `inline-flex h-9 items-center gap-1.5 rounded-full border px-3 text-xs font-medium transition ${
+=======
+    const [expandedPanel, setExpandedPanel] = useState<ExpandPanel>(null);
+    const [isDragActive, setIsDragActive] = useState(false);
+    const workspaceMode = useWorkspaceStore(state => state.workspaceMode);
+    const promptScope = useWorkspaceStore(state => state.promptScope);
+    const focusedNodeId = useWorkspaceStore(state => state.focusedNodeId);
+    const nodePromptDraft = useWorkspaceStore(state => state.nodePromptDraft);
+
+    const triggerClass = `inline-flex ${compactMode ? 'h-7 gap-1 px-2.5 text-[11px]' : 'h-8 gap-1.5 px-3 text-xs'} items-center rounded-full border font-medium transition ${
+>>>>>>> Stashed changes
         isDark ? 'border-[#2A3140] bg-[#1B2029] text-[#D0D5DD] hover:bg-[#252C39]' : 'border-[#E5E7EB] bg-[#F5F7FA] text-[#344054] hover:border-[#D0D5DD] hover:bg-white'
     }`;
     const activeTriggerClass = isDark ? 'border-[#4B5B78] bg-[#202734] text-white shadow-sm' : 'border-[#D0D5DD] bg-white text-[#111827] shadow-sm';
@@ -151,10 +171,71 @@ export const PromptBar: React.FC<PromptBarProps> = ({
 >>>>>>> Stashed changes
     );
 
+<<<<<<< Updated upstream
     const selectedMentionItems = useMemo<MentionItem[]>(
         () => selectedCanvasElements.filter(el => el.isVisible !== false).map(elementToMentionItem),
         [selectedCanvasElements]
     );
+=======
+    const currentModelOptions = generationMode === 'video' ? videoModelOptions : imageModelOptions;
+    const placeholder = useMemo(() => {
+        if (promptScope === 'node' && focusedNodeId) {
+            return `当前焦点节点 ${focusedNodeId}，可继续补充节点提示词或载入节点草稿`;
+        }
+        if (!isSelectionActive) return '使用 @ 引用画布中的图片，例如：把 @图片1 的人物替换为 @图片2 的兔子';
+        if (selectedElementCount === 1) return '描述你想对当前元素做什么';
+        return `已选中 ${selectedElementCount} 个元素，补充组合生成描述`;
+    }, [focusedNodeId, isSelectionActive, promptScope, selectedElementCount]);
+
+    const contextSummary = useMemo(() => {
+        if (promptScope === 'node' && focusedNodeId) {
+            return {
+                label: '节点上下文',
+                detail: focusedNodeId,
+            };
+        }
+
+        if (workspaceMode === 'node') {
+            return {
+                label: '节点画布',
+                detail: '未选中节点',
+            };
+        }
+
+        return {
+            label: '全局画布',
+            detail: isSelectionActive ? `已选中 ${selectedElementCount} 个元素` : '白板提示词',
+        };
+    }, [focusedNodeId, isSelectionActive, promptScope, selectedElementCount, workspaceMode]);
+
+    /** 编辑器文本 + mention 变化时同步到父组件 */
+    const handleEditorChange = useCallback((plainText: string, json: Record<string, unknown>) => {
+        setPrompt(plainText);
+        const mentions = extractMentions(json);
+        const uniqueIds = [...new Set(mentions.map(m => m.id))];
+        onMentionedElementIds?.(uniqueIds);
+    }, [setPrompt, onMentionedElementIds]);
+
+    /** 编辑器 Enter 提交 */
+    const handleEditorSubmit = useCallback(() => {
+        if (prompt.trim() && !isLoading) onGenerate();
+    }, [prompt, isLoading, onGenerate]);
+
+    /** 外部 prompt 被清空时（如切换画板、生成完成后），同步清空富文本编辑器 */
+    useEffect(() => {
+        if (!prompt && richEditorRef.current) {
+            const editorText = richEditorRef.current.getText();
+            if (editorText) richEditorRef.current.clear();
+        }
+    }, [prompt]);
+
+    useEffect(() => {
+        const handleOutsideClick = (event: MouseEvent) => {
+            if (rootRef.current && !rootRef.current.contains(event.target as Node)) {
+                setExpandedPanel(null);
+            }
+        };
+>>>>>>> Stashed changes
 
 <<<<<<< Updated upstream
     const inferredLineCount = useMemo(() => {
@@ -186,23 +267,115 @@ export const PromptBar: React.FC<PromptBarProps> = ({
         return t('promptBar.placeholderMultiple', selectedElementCount);
     };
 
+<<<<<<< Updated upstream
     const handleTextChange = useCallback(
         (plainText: string) => {
             setPrompt(plainText);
         },
         [setPrompt]
     );
+=======
+    const handleAdoptNodeDraft = useCallback(() => {
+        if (!nodePromptDraft.trim()) return;
+        setPrompt(nodePromptDraft);
+        richEditorRef.current?.setText(nodePromptDraft);
+    }, [nodePromptDraft, setPrompt]);
+
+    return (
+        <div ref={rootRef} className="theme-aware w-full">
+            <div
+                className={`relative overflow-visible rounded-[20px] border transition-all duration-200 ${shellClass} ${isDragActive ? (isDark ? 'scale-[1.01] border-[#4B5B78]' : 'scale-[1.01] border-[#B2CCFF]') : ''}`}
+                onDragEnter={event => {
+                    if (!Array.from(event.dataTransfer.items).some(item => item.type.startsWith('image/'))) return;
+                    event.preventDefault();
+                    dragDepthRef.current += 1;
+                    setIsDragActive(true);
+                }}
+                onDragOver={event => {
+                    if (!Array.from(event.dataTransfer.items).some(item => item.type.startsWith('image/'))) return;
+                    event.preventDefault();
+                    event.dataTransfer.dropEffect = 'copy';
+                }}
+                onDragLeave={event => {
+                    if (!Array.from(event.dataTransfer.items).some(item => item.type.startsWith('image/'))) return;
+                    event.preventDefault();
+                    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+                    if (dragDepthRef.current === 0) setIsDragActive(false);
+                }}
+                onDrop={event => {
+                    event.preventDefault();
+                    dragDepthRef.current = 0;
+                    setIsDragActive(false);
+                    if (event.dataTransfer.files?.length) handleDropFiles(event.dataTransfer.files);
+                }}
+            >
+                <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    className="hidden"
+                    title="上传参考图"
+                    aria-label="上传参考图"
+                    onChange={event => {
+                        if (event.target.files?.length) {
+                            handleDropFiles(event.target.files);
+                            event.target.value = '';
+                        }
+                    }}
+                />
+>>>>>>> Stashed changes
 
     const syncMentionIds = useCallback(() => {
         const mentions = editorRef.current?.getMentions() ?? [];
         onMentionedElementIds?.(mentions.map(item => item.id));
     }, [onMentionedElementIds]);
 
+<<<<<<< Updated upstream
     const handleGenerate = useCallback(() => {
         if (isLoading || !prompt.trim()) return;
         syncMentionIds();
         onGenerate();
     }, [isLoading, onGenerate, prompt, syncMentionIds]);
+=======
+                <div className={`flex items-center justify-between border-b px-3.5 py-2 text-[11px] ${isDark ? 'border-[#202734] bg-[#0F131A] text-[#98A2B3]' : 'border-[#EEF1F5] bg-[#F8FAFC] text-[#667085]'}`}>
+                    <div className="flex min-w-0 items-center gap-2">
+                        <span className={`rounded-full px-2 py-0.5 font-semibold ${promptScope === 'node' ? (isDark ? 'bg-[#1E3A5F] text-[#B2CCFF]' : 'bg-[#EEF4FF] text-[#175CD3]') : (isDark ? 'bg-[#1B2029] text-[#D0D5DD]' : 'bg-white text-[#344054]')}`}>
+                            {contextSummary.label}
+                        </span>
+                        <span className="truncate">{contextSummary.detail}</span>
+                    </div>
+                    {promptScope === 'node' && nodePromptDraft.trim() && nodePromptDraft !== prompt && (
+                        <button
+                            type="button"
+                            onClick={handleAdoptNodeDraft}
+                            className={`rounded-full px-2.5 py-1 font-medium transition ${isDark ? 'bg-[#1B2330] text-[#B2CCFF] hover:bg-[#252C39]' : 'bg-[#EEF4FF] text-[#175CD3] hover:bg-[#DBEAFE]'}`}
+                        >
+                            载入节点草稿
+                        </button>
+                    )}
+                </div>
+
+                <div
+                    className={`relative ${compactMode ? 'px-3 pt-2.5' : 'px-3.5 pt-3'}`}
+                    style={{
+                        '--prompt-editor-color': isDark ? '#F8FAFC' : '#111827',
+                        '--prompt-editor-placeholder': isDark ? '#667085' : '#C2CAD7',
+                        '--prompt-editor-caret': isDark ? '#818CF8' : '#4f46e5',
+                        '--prompt-editor-scrollbar': isDark ? '#2A3140' : '#e5e7eb',
+                        '--prompt-editor-min-height': compactMode ? '42px' : '48px',
+                        '--prompt-editor-font-size': compactMode ? '13px' : '14px',
+                        '--prompt-editor-line-height': compactMode ? '1.4' : '1.5',
+                    } as React.CSSProperties}
+                >
+                    <RichPromptEditor
+                        ref={richEditorRef}
+                        canvasItems={canvasItems}
+                        placeholder={placeholder}
+                        onTextChange={handleEditorChange}
+                        onSubmit={handleEditorSubmit}
+                    />
+>>>>>>> Stashed changes
 
 <<<<<<< Updated upstream
     const handleEnhancePrompt = useCallback(async () => {

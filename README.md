@@ -173,7 +173,14 @@ Full deployment guide (Nginx / Caddy / Traefik, resource limits, troubleshooting
 
 ---
 
+<<<<<<< Updated upstream
 ## 🎨 Features
+=======
+### 🔑 多 Provider API 管理
+- 支持 **Google (Gemini/Imagen/Veo)**、**OpenAI (GPT/DALL-E)**、**Anthropic (Claude)**、**Stability (SDXL)**、**Qwen**、**Banana**、**RunningHub** 等多家 AI 服务
+- 按 Provider 自动推断可用模型，底部输入栏只显示已配置的模型
+- API Key 验证 + 状态指示 + 生成前预检
+>>>>>>> Stashed changes
 
 | Category | Details |
 |----------|---------|
@@ -194,12 +201,24 @@ Full deployment guide (Nginx / Caddy / Traefik, resource limits, troubleshooting
 
 ## 🏗️ Tech Stack
 
+<<<<<<< Updated upstream
 - **Framework:** React 19 + TypeScript
 - **Build:** Vite 6
 - **Styling:** Tailwind CSS
 - **Rich Text:** TipTap (mention / prompt editor)
 - **AI SDK:** `@google/genai` + OpenAI-compatible gateway
 - **Storage:** localStorage (boards, assets, settings)
+=======
+| Layer | Technology |
+|-------|-----------|
+| **Framework** | React 19 + TypeScript 5.8 |
+| **Build** | Vite 6 |
+| **Rich Text** | Tiptap 3 (@mention, suggestion) |
+| **AI SDK** | @google/genai (Gemini, Imagen, Veo) |
+| **Multi-Provider** | OpenAI, Anthropic, Stability, Qwen, Banana, RunningHub |
+| **Styling** | Tailwind CSS + CSS Custom Properties |
+| **Deployment** | Docker + Nginx / Vercel / Static |
+>>>>>>> Stashed changes
 
 ---
 
@@ -211,6 +230,7 @@ MakingLovart/
 ├── types.ts                   # Shared TypeScript types
 ├── translations.ts            # i18n (EN / ZH)
 ├── components/
+<<<<<<< Updated upstream
 │   ├── Toolbar.tsx            # Drawing & shape tools
 │   ├── PromptBar.tsx          # AI prompt input
 │   ├── RichPromptEditor.tsx   # TipTap @mention editor
@@ -219,6 +239,25 @@ MakingLovart/
 │   ├── NodeWorkflowPanel.tsx  # Visual node workflow editor
 │   ├── CanvasSettings.tsx     # Canvas background & preferences
 │   └── ...
+=======
+│   ├── PromptBar.tsx          # 底部智能输入栏（模式切换、模型选择、@mention）
+│   ├── Toolbar.tsx            # 左侧工具栏（绘制、形状、文字等）
+│   ├── WorkspaceSidebar.tsx   # 左侧面板（画板管理 + 图层面板）
+│   ├── RightPanel.tsx         # 右侧面板（生成设置 + 灵感/素材库）
+│   ├── CanvasSettings.tsx     # 设置面板 & API Key 管理
+│   ├── LayerPanel.tsx         # 图层管理面板
+│   ├── InspirationPanel.tsx   # 灵感 & 历史面板
+│   ├── AssetLibraryPanel.tsx  # 素材库面板
+│   ├── BoardPanel.tsx         # 画板管理面板
+│   ├── RichPromptEditor.tsx   # Tiptap 富文本编辑器
+│   ├── CanvasMentionExtension.tsx  # @mention 扩展
+│   ├── MentionList.tsx        # @mention 下拉列表
+│   ├── QuickPrompts.tsx       # 快捷提示词模板
+│   ├── ConfigManager/         # API Key 配置管理组件
+│   └── nodeflow/              # 节点编辑器内核
+├── pages/
+│   └── workflow/              # 当前运行中的节点工作流页面与状态
+>>>>>>> Stashed changes
 ├── services/
 │   ├── geminiService.ts       # Gemini / Imagen / Veo API
 │   ├── aiGateway.ts           # OpenAI / Qwen / Stability / Anthropic router
@@ -242,6 +281,36 @@ MakingLovart/
 - [ ] Plugin / extension architecture
 - [ ] Export to PDF / high-res image
 - [ ] Mobile & tablet optimization
+
+RunningHub 已接入文生图、参考图编辑和局部重绘。配置时需要填写 32 位 API Key，文生图 App ID、图生图 App ID、局部重绘 App ID，以及图片参数名和遮罩参数名；参考图和白板遮罩都会以 data URI 形式自动注入对应字段，运行地址、查询地址、上传地址由应用自动使用平台固定链接。
+
+### RunningHub 配置说明
+
+在应用内打开 设置 → API 配置 → 添加 API Key，Provider 选择 RunningHub 后，建议按下面方式填写：
+
+- API Key：RunningHub 后台生成的 32 位 Access Key
+- 文生图 App ID：用于纯提示词出图的 AI App ID
+- 图生图 App ID：用于参考图编辑或多图合成的 AI App ID
+- 局部重绘 App ID：用于白板遮罩重绘的 AI App ID
+- 图片参数名：你的图生图或局部重绘工作流中接收图片数组的字段名，默认是 images
+- 遮罩参数名：你的局部重绘工作流中接收遮罩图片的字段名，默认是 mask
+- 高级节点映射：可选配置提示词、模型、比例、提示词类型对应的 nodeId 和 fieldName；如果你的工作流不是文档示例结构，需要在这里对齐
+- 默认模型：当前内置为文档示例中的 Midjourney / Niji 模型选项
+- 默认比例：会映射到 RunningHub 工作流里的 aspect_rate 字段
+- instanceType：default 或 plus
+- usePersonalQueue：是否启用个人独占队列
+- retainSeconds：可选，适合企业共享队列复用实例
+- webhookUrl：可选，任务完成后回调
+
+当前版本的运行逻辑如下：
+
+- 文生图：调用固定地址 /openapi/v2/run/ai-app/{文生图 App ID}
+- 图生图：调用固定地址 /openapi/v2/run/ai-app/{图生图 App ID}
+- 局部重绘：调用固定地址 /openapi/v2/run/ai-app/{局部重绘 App ID}
+- 查询状态：统一调用 /openapi/v2/query
+- 本地文件上传：统一调用 /openapi/v2/media/upload/binary
+
+如果你的 RunningHub 工作流不是文档示例那套节点结构，现在可以直接在高级节点映射里改 nodeId、fieldName，以及可选的 fieldData JSON。
 
 ---
 

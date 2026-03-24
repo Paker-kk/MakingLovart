@@ -128,8 +128,47 @@ export interface AssetLibrary {
 }
 
 // API Key & Model Preferences
+<<<<<<< Updated upstream
 export type AIProvider = 'openai' | 'anthropic' | 'google' | 'stability' | 'qwen' | 'banana' | 'custom';
+=======
+export type ThemeMode = 'light' | 'dark' | 'system';
+export type AIProvider = 'openai' | 'anthropic' | 'google' | 'stability' | 'qwen' | 'banana' | 'runninghub' | 'custom';
+>>>>>>> Stashed changes
 export type AICapability = 'text' | 'image' | 'video' | 'agent';
+
+export type RunningHubInstanceType = 'default' | 'plus';
+export type RunningHubAspectRatio = 'auto' | '1:1' | '16:9' | '16:10' | '4:3' | '3:2' | '9:16' | '10:16' | '3:4' | '2:3';
+
+export interface RunningHubConfig {
+  textToImageAppId?: string;
+  imageToImageAppId?: string;
+  inpaintAppId?: string;
+  /** 图片输入节点 ID（nodeInfoList 中用于注入参考图的 nodeId），默认 '2' */
+  imageNodeId?: string;
+  /** 图片输入字段名（nodeInfoList 中用于注入参考图的 fieldName），默认 'images' */
+  imageInputFieldName?: string;
+  /** 遮罩输入节点 ID（nodeInfoList 中用于注入 mask 的 nodeId），默认与 imageNodeId 相同 */
+  maskNodeId?: string;
+  /** 遮罩输入字段名（nodeInfoList 中用于注入 mask 的 fieldName），默认 'mask' */
+  maskFieldName?: string;
+  promptNodeId?: string;
+  promptFieldName?: string;
+  modelNodeId?: string;
+  modelFieldName?: string;
+  modelFieldDataJson?: string;
+  aspectNodeId?: string;
+  aspectFieldName?: string;
+  aspectFieldDataJson?: string;
+  promptTypeNodeId?: string;
+  promptTypeFieldName?: string;
+  promptTypeValue?: string;
+  model?: string;
+  aspectRatio?: RunningHubAspectRatio;
+  instanceType?: RunningHubInstanceType;
+  usePersonalQueue?: boolean;
+  retainSeconds?: number;
+  webhookUrl?: string;
+}
 
 export interface UserApiKey {
   id: string;
@@ -139,6 +178,15 @@ export interface UserApiKey {
   name?: string;
   isDefault?: boolean;
   status?: 'unknown' | 'ok' | 'error';
+<<<<<<< Updated upstream
+=======
+  /** 用户为这个 Key 自定义的可调用模型列表 */
+  customModels?: string[];
+  /** 这些自定义模型中用户设定的默认模型 */
+  defaultModel?: string;
+  /** RunningHub 的工作流与实例配置 */
+  runninghub?: RunningHubConfig;
+>>>>>>> Stashed changes
   createdAt: number;
   updatedAt: number;
 }

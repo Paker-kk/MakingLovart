@@ -24,6 +24,7 @@ interface ToolbarProps {
 }
 
 <<<<<<< Updated upstream
+<<<<<<< Updated upstream
 type ToolDef = {
     id: Tool | 'upload' | 'undo' | 'redo' | 'layers' | 'boards' | 'settings';
     label: string;
@@ -41,6 +42,11 @@ const panelPosition = {
     leftOpen: 288,
 >>>>>>> Stashed changes
 };
+=======
+const iconSize = 18;
+
+const groupTitleClass = 'm3-toolbar__section-title';
+>>>>>>> Stashed changes
 
 const baseButtonClass =
     'inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-transparent text-neutral-600 transition-all hover:border-neutral-200 hover:bg-white hover:text-neutral-900 disabled:cursor-not-allowed disabled:opacity-30';
@@ -58,6 +64,7 @@ function ToolButton({
     icon: JSX.Element;
     active?: boolean;
     disabled?: boolean;
+<<<<<<< Updated upstream
     onClick?: () => void;
 }) {
     return (
@@ -71,6 +78,75 @@ function ToolButton({
         >
             {icon}
         </button>
+=======
+    theme: 'light' | 'dark';
+    tone?: 'accent' | 'neutral';
+    hasMenu?: boolean;
+}> = ({ label, icon, onClick, active = false, disabled = false, theme, tone = 'neutral', hasMenu = false }) => (
+    <button
+        type="button"
+        aria-label={label}
+        title={label}
+        onClick={onClick}
+        disabled={disabled}
+        className={`m3-tool-button ${active ? 'm3-tool-button--active' : ''} ${theme === 'dark' ? 'm3-tool-button--dark' : 'm3-tool-button--light'} ${tone === 'accent' ? 'm3-tool-button--accent' : ''}`}
+    >
+        <span className="m3-tool-button__icon">{icon}</span>
+        {hasMenu && <span className="m3-tool-button__menu-dot" aria-hidden="true" />}
+    </button>
+);
+
+const ToolGroupButton: React.FC<{
+    label: string;
+    activeTool: Tool;
+    setActiveTool: (tool: Tool) => void;
+    items: Array<{ id: Tool; label: string; icon: React.ReactNode }>;
+    fallbackIcon: React.ReactNode;
+    theme: 'light' | 'dark';
+}> = ({ label, activeTool, setActiveTool, items, fallbackIcon, theme }) => {
+    const [open, setOpen] = useState(false);
+    const wrapperRef = useRef<HTMLDivElement>(null);
+    const activeItem = items.find(item => item.id === activeTool);
+
+    useEffect(() => {
+        const handleOutsideClick = (event: MouseEvent) => {
+            if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
+                setOpen(false);
+            }
+        };
+        document.addEventListener('mousedown', handleOutsideClick);
+        return () => document.removeEventListener('mousedown', handleOutsideClick);
+    }, []);
+
+    return (
+        <div className="relative" ref={wrapperRef}>
+            <ToolButton
+                label={label}
+                icon={activeItem?.icon ?? fallbackIcon}
+                active={!!activeItem}
+                onClick={() => setOpen(prev => !prev)}
+                theme={theme}
+                hasMenu
+            />
+            {open && (
+                <div className={`m3-toolbar__flyout ${theme === 'dark' ? 'm3-toolbar__flyout--dark' : 'm3-toolbar__flyout--light'}`}>
+                    {items.map(item => (
+                        <ToolButton
+                            key={item.id}
+                            label={item.label}
+                            icon={item.icon}
+                            active={activeTool === item.id}
+                            onClick={() => {
+                                setActiveTool(item.id);
+                                setOpen(false);
+                            }}
+                            theme={theme}
+                        />
+                    ))}
+                </div>
+            )}
+        </div>
+>>>>>>> Stashed changes
     );
 }
 
@@ -111,6 +187,13 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     compactBottomInset = 112,
 }) => {
     const fileInputRef = useRef<HTMLInputElement>(null);
+<<<<<<< Updated upstream
+=======
+    const leftPosition = isLayerPanelExpanded ? leftOpen : leftClosed;
+    const isDark = theme === 'dark';
+    const toolbarScale = Math.max(0.78, compactScale * 0.86);
+    const toolbarHeight = 392 * toolbarScale;
+>>>>>>> Stashed changes
 
 <<<<<<< Updated upstream
     const handleUploadClick = () => fileInputRef.current?.click();
@@ -127,8 +210,13 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     }, [leftPosition, onLeftChange]);
 
     useEffect(() => {
+<<<<<<< Updated upstream
         onHeightChange?.(380);
     }, [onHeightChange]);
+=======
+        onHeightChange?.(toolbarHeight);
+    }, [onHeightChange, toolbarHeight]);
+>>>>>>> Stashed changes
 
     const shapeTools = useMemo<Array<{ id: Tool; label: string; icon: React.ReactNode }>>(
         () => [
@@ -188,13 +276,39 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     );
 >>>>>>> Stashed changes
 
+    const isShapeActive = shapeTools.some(item => item.id === activeTool);
+    const isDrawingActive = drawingTools.some(item => item.id === activeTool);
+
     if (isCropping) {
         return (
+<<<<<<< Updated upstream
             <div className="absolute left-6 top-6 z-[45] rounded-[22px] border border-neutral-200 bg-white p-3 shadow-[0_16px_36px_rgba(15,23,42,0.12)]">
                 <div className="mb-2 text-sm font-medium text-neutral-700">{t('toolbar.crop.title')}</div>
                 <div className="grid grid-cols-2 gap-2">
                     <button onClick={onCancelCrop} className="rounded-xl border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm text-neutral-700">{t('toolbar.crop.cancel')}</button>
                     <button onClick={onConfirmCrop} className="rounded-xl bg-neutral-900 px-3 py-2 text-sm text-white">{t('toolbar.crop.confirm')}</button>
+=======
+            <div
+                className={`m3-toolbar m3-toolbar--crop absolute top-3 z-[50] ${isDark ? 'm3-toolbar--dark' : 'm3-toolbar--light'}`}
+                style={{ left: `${leftPosition}px`, top: `${topOffset}px`, transform: `scale(${toolbarScale})`, transformOrigin: 'top left', transition: 'left 0.35s cubic-bezier(0.4, 0, 0.2, 1)' }}
+            >
+                <div className="m3-toolbar__crop-title">{t('toolbar.crop.title')}</div>
+                <div className="m3-toolbar__crop-actions">
+                    <button
+                        type="button"
+                        onClick={onCancelCrop}
+                        className={`m3-toolbar__crop-button ${isDark ? 'm3-toolbar__crop-button--dark' : 'm3-toolbar__crop-button--light'}`}
+                    >
+                        {t('toolbar.crop.cancel')}
+                    </button>
+                    <button
+                        type="button"
+                        onClick={onConfirmCrop}
+                        className={`m3-toolbar__crop-button m3-toolbar__crop-button--primary ${isDark ? 'm3-toolbar__crop-button--primary-dark' : 'm3-toolbar__crop-button--primary-light'}`}
+                    >
+                        {t('toolbar.crop.confirm')}
+                    </button>
+>>>>>>> Stashed changes
                 </div>
             </div>
         );
@@ -241,11 +355,16 @@ export const Toolbar: React.FC<ToolbarProps> = ({
         <div className={shellClass} style={shellStyle}>
 =======
         <div
+<<<<<<< Updated upstream
             className={`absolute top-3 z-[40] flex flex-col items-center gap-1 rounded-[20px] border px-1 py-1.5 shadow-[0_20px_48px_rgba(15,23,42,0.24)] ${
                 isDark ? 'border-[#2A3140] bg-[#12151B] text-white' : 'border-neutral-200 bg-white text-[#111827]'
             }`}
+=======
+            className={`m3-toolbar absolute z-[40] ${isDark ? 'm3-toolbar--dark' : 'm3-toolbar--light'}`}
+>>>>>>> Stashed changes
             style={{
                 left: `${leftPosition}px`,
+<<<<<<< Updated upstream
                 transition: 'left 0.35s cubic-bezier(0.4, 0, 0.2, 1)',
             }}
         >
@@ -270,11 +389,64 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                 label={t('toolbar.pan')}
                 icon={
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+=======
+                transform: `scale(${toolbarScale})`,
+                transformOrigin: 'top left',
+                transition: 'left 0.35s cubic-bezier(0.4, 0, 0.2, 1)',
+            }}
+        >
+            <div className="m3-toolbar__section">
+                <div className={groupTitleClass}>{t('toolbar.workspaceGroup')}</div>
+                <div className={`m3-toolbar__group ${isLayerPanelExpanded ? 'm3-toolbar__group--active' : ''}`}>
+                    <ToolButton
+                        label={t('toolbar.layers')}
+                        onClick={onLayersClick}
+                        icon={<svg width={iconSize} height={iconSize} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="4" y="5" width="7" height="14" rx="2" /><rect x="13" y="5" width="7" height="14" rx="2" /></svg>}
+                        active={isLayerPanelExpanded}
+                        theme={theme}
+                        tone="accent"
+                    />
+                    {onAssetsClick && (
+                        <ToolButton
+                            label={t('toolbar.assets')}
+                            onClick={onAssetsClick}
+                            icon={<svg width={iconSize} height={iconSize} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="4" y="4" width="16" height="16" rx="2" /><path d="M4 10h16" /><path d="M10 4v16" /></svg>}
+                            theme={theme}
+                        />
+                    )}
+                    <ToolButton
+                        label={t('toolbar.settings')}
+                        onClick={onSettingsClick}
+                        icon={<svg width={iconSize} height={iconSize} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 0 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 0 1-4 0v-.1a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 0 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 0 1 0-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 0 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 0 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 0 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9c0 .7.4 1.3 1.1 1.6.2.1.5.1.7.1H21a2 2 0 0 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z" /></svg>}
+                        theme={theme}
+                    />
+                </div>
+            </div>
+
+            <div className="m3-toolbar__divider" />
+
+            <div className="m3-toolbar__section">
+                <div className={groupTitleClass}>{t('toolbar.navigateGroup')}</div>
+                <div className={`m3-toolbar__group ${activeTool === 'select' || activeTool === 'pan' ? 'm3-toolbar__group--active' : ''}`}>
+                    <ToolButton
+                        label={t('toolbar.select')}
+                        icon={<svg width={iconSize} height={iconSize} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m4 3 7 17 2.5-7.5L21 10 4 3Z" /><path d="m13 13 6 6" /></svg>}
+                        active={activeTool === 'select'}
+                        onClick={() => setActiveTool('select')}
+                        theme={theme}
+                        tone="accent"
+                    />
+                    <ToolButton
+                        label={t('toolbar.pan')}
+                        icon={
+                            <svg width={iconSize} height={iconSize} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+>>>>>>> Stashed changes
                         <path d="M6 12V6a2 2 0 1 1 4 0v6" />
                         <path d="M10 12V5a2 2 0 1 1 4 0v7" />
                         <path d="M14 12V7a2 2 0 1 1 4 0v7" />
                         <path d="M18 12v-1a2 2 0 1 1 4 0v3a7 7 0 0 1-7 7h-2a7 7 0 0 1-7-7v-2a2 2 0 1 1 4 0" />
                     </svg>
+<<<<<<< Updated upstream
                 }
                 active={activeTool === 'pan'}
                 onClick={() => setActiveTool('pan')}
@@ -327,6 +499,80 @@ export const Toolbar: React.FC<ToolbarProps> = ({
             <span className="text-[10px] text-white/60">{drawingOptions.strokeWidth}</span>
 
             <div className={`my-0.5 h-px w-5 ${isDark ? 'bg-white/10' : 'bg-neutral-200'}`} />
+=======
+                        }
+                        active={activeTool === 'pan'}
+                        onClick={() => setActiveTool('pan')}
+                        theme={theme}
+                    />
+                </div>
+            </div>
+
+            <div className="m3-toolbar__divider" />
+
+            <div className="m3-toolbar__section">
+                <div className={groupTitleClass}>{t('toolbar.createGroup')}</div>
+                <div className={`m3-toolbar__group ${isShapeActive || isDrawingActive || activeTool === 'text' ? 'm3-toolbar__group--active' : ''}`}>
+                    <ToolGroupButton
+                        label={t('toolbar.shapes')}
+                        activeTool={activeTool}
+                        setActiveTool={setActiveTool}
+                        items={shapeTools}
+                        fallbackIcon={<svg width={iconSize} height={iconSize} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="5" y="5" width="14" height="14" rx="2" /></svg>}
+                        theme={theme}
+                    />
+                    <ToolGroupButton
+                        label={t('toolbar.drawingTools')}
+                        activeTool={activeTool}
+                        setActiveTool={setActiveTool}
+                        items={drawingTools}
+                        fallbackIcon={<svg width={iconSize} height={iconSize} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17 3a2.8 2.8 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3Z" /></svg>}
+                        theme={theme}
+                    />
+                    <ToolButton
+                        label={t('toolbar.text')}
+                        icon={<svg width={iconSize} height={iconSize} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 7V4h16v3" /><path d="M12 4v16" /><path d="M9 20h6" /></svg>}
+                        active={activeTool === 'text'}
+                        onClick={() => setActiveTool('text')}
+                        theme={theme}
+                        tone="accent"
+                    />
+                </div>
+            </div>
+
+            <div className="m3-toolbar__divider" />
+
+            <div className="m3-toolbar__section">
+                <div className={groupTitleClass}>{t('toolbar.strokeGroup')}</div>
+                <div className="m3-toolbar__stroke-panel">
+                    <label className={`m3-toolbar__stroke-swatch ${isDark ? 'm3-toolbar__stroke-swatch--dark' : 'm3-toolbar__stroke-swatch--light'}`}>
+                        <input
+                            type="color"
+                            aria-label={t('toolbar.strokeColor')}
+                            title={t('toolbar.strokeColor')}
+                            value={drawingOptions.strokeColor}
+                            onChange={(event) => setDrawingOptions({ ...drawingOptions, strokeColor: event.target.value })}
+                            className="m3-toolbar__color-input"
+                        />
+                    </label>
+                    <div className="m3-toolbar__stroke-range-wrap">
+                        <input
+                            type="range"
+                            min="1"
+                            max="50"
+                            aria-label={t('toolbar.strokeWidth')}
+                            title={t('toolbar.strokeWidth')}
+                            value={drawingOptions.strokeWidth}
+                            onChange={(event) => setDrawingOptions({ ...drawingOptions, strokeWidth: Number(event.target.value) })}
+                            className={`m3-toolbar__stroke-range ${isDark ? 'm3-toolbar__stroke-range--dark' : 'm3-toolbar__stroke-range--light'}`}
+                        />
+                        <span className="m3-toolbar__stroke-value">{drawingOptions.strokeWidth}</span>
+                    </div>
+                </div>
+            </div>
+
+            <div className="m3-toolbar__divider" />
+>>>>>>> Stashed changes
 
 >>>>>>> Stashed changes
             <input
@@ -391,6 +637,7 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                     event.target.value = '';
                 }}
             />
+<<<<<<< Updated upstream
             <ToolButton
                 label={t('toolbar.upload')}
                 onClick={() => fileInputRef.current?.click()}
@@ -428,6 +675,33 @@ export const Toolbar: React.FC<ToolbarProps> = ({
                 icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m15 14 5-5-5-5" /><path d="M20 9H9.5A5.5 5.5 0 0 0 4 14.5 5.5 5.5 0 0 0 9.5 20H13" /></svg>}
                 theme={theme}
             />
+>>>>>>> Stashed changes
+=======
+            <div className="m3-toolbar__section">
+                <div className={groupTitleClass}>{t('toolbar.historyGroup')}</div>
+                <div className="m3-toolbar__group">
+                    <ToolButton
+                        label={t('toolbar.upload')}
+                        onClick={() => fileInputRef.current?.click()}
+                        icon={<svg width={iconSize} height={iconSize} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 16V4" /><path d="m7 9 5-5 5 5" /><path d="M20 16v3a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-3" /></svg>}
+                        theme={theme}
+                    />
+                    <ToolButton
+                        label={t('toolbar.undo')}
+                        onClick={onUndo}
+                        disabled={!canUndo}
+                        icon={<svg width={iconSize} height={iconSize} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m9 14-5-5 5-5" /><path d="M4 9h10.5A5.5 5.5 0 0 1 20 14.5 5.5 5.5 0 0 1 14.5 20H11" /></svg>}
+                        theme={theme}
+                    />
+                    <ToolButton
+                        label={t('toolbar.redo')}
+                        onClick={onRedo}
+                        disabled={!canRedo}
+                        icon={<svg width={iconSize} height={iconSize} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m15 14 5-5-5-5" /><path d="M20 9H9.5A5.5 5.5 0 0 0 4 14.5 5.5 5.5 0 0 0 9.5 20H13" /></svg>}
+                        theme={theme}
+                    />
+                </div>
+            </div>
 >>>>>>> Stashed changes
         </div>
     );

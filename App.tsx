@@ -9,6 +9,7 @@ import { Toolbar } from './components/Toolbar';
 import { PromptBar } from './components/PromptBar';
 import { Loader } from './components/Loader';
 import { CanvasSettings } from './components/CanvasSettings';
+<<<<<<< Updated upstream
 import { LayerPanelMinimizable } from './components/LayerPanelMinimizable';
 import { BoardPanel } from './components/BoardPanel';
 import { ProjectMenu } from './components/ProjectMenu';
@@ -20,8 +21,42 @@ import { editImage, generateImageFromText, generateVideo, setGeminiRuntimeConfig
 import { splitImageByBanana, runBananaImageAgent, setBananaRuntimeConfig } from './services/bananaService';
 import { fileToDataUrl } from './utils/fileUtils';
 import { translations } from './translations';
+=======
+import { SettingsErrorBoundary } from './components/SettingsErrorBoundary';
+import { OnboardingWizard } from './components/OnboardingWizard';
+import { WorkspaceSidebar } from './components/WorkspaceSidebar';
+import type { Tool, Point, Element, ImageElement, PathElement, ShapeElement, TextElement, ArrowElement, UserEffect, LineElement, WheelAction, GroupElement, Board, VideoElement, AssetLibrary, AssetCategory, AssetItem, UserApiKey, ModelPreference, AIProvider, AICapability, PromptEnhanceMode, CharacterLockProfile, GenerationHistoryItem, ThemeMode, ChatAttachment } from './types';
+import { AssetLibraryPanel } from './components/AssetLibraryPanel';
+import { InspirationPanel } from './components/InspirationPanel';
+import { RightPanel } from './components/RightPanel';
+import { AssetAddModal } from './components/AssetAddModal';
+import { loadAssetLibrary, addAsset, removeAsset, renameAsset } from './utils/assetStorage';
+import { loadGenerationHistory, addGenerationHistoryItem } from './utils/generationHistory';
+import { generateImageFromText, generateVideo, setGeminiRuntimeConfig, enhancePromptWithGemini } from './services/geminiService';
+import { splitImageByBanana, runBananaImageAgent, setBananaRuntimeConfig } from './services/bananaService';
+import { editImageWithProvider, enhancePromptWithProvider, generateImageWithProvider, inferProviderFromModel } from './services/aiGateway';
+import { fileToDataUrl } from './utils/fileUtils';
+import { translations } from './translations';
+import { useAPIConfigStore } from './src/store/api-config-store';
+import { useWorkspaceStore } from './src/store/workspace-store';
+import { saveKeysEncrypted, loadKeysDecrypted, clearAllKeyData, migrateLegacyKeys } from './utils/keyVault';
+import type { APIConfig } from './src/types/api-config';
+import { getCompactChromeMetrics } from './utils/uiScale';
+import { NodeWorkflowPage } from './pages/workflow/NodeWorkflowPage';
+import {
+    classifyError as classifyKeyError,
+    handleKeyError,
+    checkCircuitBreaker,
+} from './services/apiKeyManager';
+>>>>>>> Stashed changes
 
 const generateId = () => `id_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+/** 从错误消息中提取 HTTP 状态码（如有） */
+function extractHttpStatus(message: string): number | undefined {
+    const match = message.match(/\b(4\d{2}|5\d{2})\b/);
+    return match ? parseInt(match[1], 10) : undefined;
+}
 
 const getElementBounds = (element: Element, allElements: Element[] = []): { x: number; y: number; width: number; height: number } => {
     if (element.type === 'group') {
@@ -366,6 +401,7 @@ const DEFAULT_MODEL_PREFS: ModelPreference = {
     agentModel: 'banana-vision-v1',
 };
 
+<<<<<<< Updated upstream
 const IMAGE_MODEL_OPTIONS = ['gemini-2.5-flash-image-preview', 'imagen-4.0-generate-001'];
 const VIDEO_MODEL_OPTIONS = ['veo-2.0-generate-001'];
 
@@ -373,12 +409,140 @@ const App: React.FC = () => {
     const [boards, setBoards] = useState<Board[]>(() => {
         // TODO: Load from localStorage
         return [createNewBoard('Board 1')];
+=======
+// 根据 provider 映射出可选模型列表
+const PROVIDER_MODELS: Record<string, { text: string[]; image: string[]; video: string[] }> = {
+    google:    { text: ['gemini-2.5-pro', 'gemini-2.5-flash'], image: ['gemini-2.5-flash-image', 'imagen-4.0-generate-001'], video: ['veo-2.0-generate-001'] },
+    openai:    { text: ['gpt-4o-mini'], image: ['dall-e-3'], video: [] },
+    anthropic: { text: ['claude-3-5-sonnet'], image: [], video: [] },
+    qwen:      { text: ['qwen-max'], image: [], video: [] },
+    stability: { text: [], image: ['sdxl'], video: [] },
+    banana:    { text: [], image: [], video: [] },
+    runninghub:{ text: [], image: ['runninghub-image'], video: [] },
+};
+// 兜底：当用户没有任何 API Key 时的默认选项（不可用，仅占位）
+const FALLBACK_TEXT_OPTIONS = ['gemini-2.5-pro'];
+const FALLBACK_IMAGE_OPTIONS = ['gemini-2.5-flash-image'];
+const FALLBACK_VIDEO_OPTIONS = ['veo-2.0-generate-001'];
+const BOARDS_STORAGE_KEY = 'boards.v1';
+const ACTIVE_BOARD_STORAGE_KEY = 'boards.activeId.v1';
+
+const THEME_PALETTES = {
+    light: {
+        appBackground: '#f3f5f9',
+        canvasBackground: '#f7f8fb',
+        uiBgColor: 'rgba(255, 255, 255, 0.92)',
+        buttonBgColor: '#111827',
+    },
+    dark: {
+        appBackground: '#0c0f14',
+        canvasBackground: '#11151c',
+        uiBgColor: 'rgba(18, 21, 27, 0.94)',
+        buttonBgColor: '#f3f4f6',
+    },
+} as const;
+
+const inferCapabilitiesByProvider = (provider: AIProvider): AICapability[] => {
+    switch (provider) {
+        case 'google':
+            return ['text', 'image', 'video'];
+        case 'openai':
+            return ['text', 'image'];
+        case 'anthropic':
+        case 'qwen':
+            return ['text'];
+        case 'stability':
+            return ['image'];
+        case 'banana':
+            return ['agent'];
+        case 'runninghub':
+            return ['image'];
+        case 'custom':
+            return ['text', 'image', 'video'];
+        default:
+            return ['text'];
+    }
+};
+
+const normalizeApiKeyEntry = (item: Partial<UserApiKey>): UserApiKey | null => {
+    if (!item || !item.id || !item.provider || !item.key) return null;
+    const customModels = Array.isArray(item.customModels)
+        ? item.customModels.filter((model): model is string => typeof model === 'string' && model.trim().length > 0)
+        : undefined;
+    const runninghub = item.runninghub && typeof item.runninghub === 'object'
+        ? item.runninghub
+        : undefined;
+
+    return {
+        id: item.id,
+        provider: item.provider,
+        capabilities:
+            Array.isArray(item.capabilities) && item.capabilities.length > 0
+                ? item.capabilities
+                : inferCapabilitiesByProvider(item.provider),
+        key: item.key,
+        baseUrl: typeof item.baseUrl === 'string' ? item.baseUrl : undefined,
+        name: typeof item.name === 'string' ? item.name : undefined,
+        isDefault: item.isDefault,
+        status: item.status,
+        customModels,
+        defaultModel: typeof item.defaultModel === 'string' ? item.defaultModel : undefined,
+        runninghub,
+        createdAt: item.createdAt || Date.now(),
+        updatedAt: item.updatedAt || Date.now(),
+    };
+};
+
+const hasCapabilityOverlap = (left: AICapability[], right: AICapability[]) =>
+    left.some(capability => right.includes(capability));
+
+const loadBoardsFromStorage = (): Board[] => {
+    try {
+        const raw = localStorage.getItem(BOARDS_STORAGE_KEY);
+        const parsed = raw ? JSON.parse(raw) : null;
+        if (!Array.isArray(parsed) || parsed.length === 0) {
+            return [createNewBoard('Board 1')];
+        }
+
+        const boards = parsed.filter((board): board is Board => {
+            return !!board && typeof board.id === 'string' && typeof board.name === 'string' && Array.isArray(board.elements);
+        });
+
+        return boards.length > 0 ? boards : [createNewBoard('Board 1')];
+    } catch {
+        return [createNewBoard('Board 1')];
+    }
+};
+
+const App: React.FC = () => {
+    const workspaceMode = useWorkspaceStore(state => state.workspaceMode);
+    const promptScope = useWorkspaceStore(state => state.promptScope);
+    const nodePromptDraft = useWorkspaceStore(state => state.nodePromptDraft);
+    const setWorkspaceMode = useWorkspaceStore(state => state.setWorkspaceMode);
+    const setLastCanvasBoardId = useWorkspaceStore(state => state.setLastCanvasBoardId);
+    const [boards, setBoards] = useState<Board[]>(() => loadBoardsFromStorage());
+    const [activeBoardId, setActiveBoardId] = useState<string>(() => {
+        try {
+            const saved = localStorage.getItem(ACTIVE_BOARD_STORAGE_KEY);
+            return saved || '';
+        } catch {
+            return '';
+        }
+>>>>>>> Stashed changes
     });
     const [activeBoardId, setActiveBoardId] = useState<string>(boards[0].id);
 
     const activeBoard = useMemo(() => boards.find(b => b.id === activeBoardId)!, [boards, activeBoardId]);
 
+<<<<<<< Updated upstream
     const { elements, history, historyIndex, panOffset, zoom, canvasBackgroundColor } = activeBoard;
+=======
+    useEffect(() => {
+        setLastCanvasBoardId(activeBoardId || null);
+    }, [activeBoardId, setLastCanvasBoardId]);
+
+    const { elements, history, historyIndex, panOffset, zoom } = activeBoard;
+>>>>>>> Stashed changes
 
     const [activeTool, setActiveTool] = useState<Tool>('select');
     const [drawingOptions, setDrawingOptions] = useState({ strokeColor: '#111827', strokeWidth: 5 });
@@ -580,6 +744,63 @@ const App: React.FC = () => {
         return byProvider.find(key => key.isDefault) || byProvider[0];
     }, [userApiKeys]);
 
+    const getCandidateApiKeys = useCallback((capability: AICapability, provider?: AIProvider) => {
+        const matches = userApiKeys.filter(key => {
+            const capabilities = key.capabilities?.length ? key.capabilities : inferCapabilitiesByProvider(key.provider);
+            return capabilities.includes(capability) && (!provider || key.provider === provider);
+        });
+
+        return matches.sort((left, right) => {
+            if (!!left.isDefault === !!right.isDefault) return 0;
+            return left.isDefault ? -1 : 1;
+        });
+    }, [userApiKeys]);
+
+    const withApiKeyFallback = useCallback(async <T,>(
+        keys: UserApiKey[],
+        run: (key?: UserApiKey) => Promise<T>,
+    ): Promise<T> => {
+        if (keys.length === 0) {
+            return run(undefined);
+        }
+
+        // 熔断检查：短时间内大量配额耗尽 → 直接拒绝
+        if (checkCircuitBreaker()) {
+            throw new Error('熔断器已触发：短时间内大量 API 配额耗尽错误，请稍后再试');
+        }
+
+        let lastError: unknown;
+        for (let index = 0; index < keys.length; index += 1) {
+            const key = keys[index];
+            try {
+                return await run(key);
+            } catch (error) {
+                lastError = error;
+                const msg = error instanceof Error ? error.message : String(error || '');
+
+                // 通过三级容错分类错误
+                const httpStatus = extractHttpStatus(msg);
+                const category = classifyKeyError(httpStatus, undefined, msg);
+                const { shouldRetry, circuitBroken } = handleKeyError(
+                    key.key || '',
+                    category,
+                    msg,
+                );
+
+                if (circuitBroken) {
+                    throw new Error('熔断器已触发：短时间内大量 API 配额耗尽错误，请稍后再试');
+                }
+
+                if (index === keys.length - 1 || !shouldRetry) {
+                    throw error;
+                }
+                console.warn(`[API Fallback] ${key.name || key.provider} failed (${category}), retrying with next key.`, error);
+            }
+        }
+
+        throw lastError instanceof Error ? lastError : new Error('All candidate API keys failed.');
+    }, []);
+
     useEffect(() => {
         const googleKey = getDefaultKeyByProvider('google');
         const bananaKey = getDefaultKeyByProvider('banana');
@@ -680,11 +901,23 @@ const App: React.FC = () => {
     }) => {
         setIsEnhancingPrompt(true);
         try {
+<<<<<<< Updated upstream
             return await enhancePromptWithGemini(payload);
         } finally {
             setIsEnhancingPrompt(false);
         }
     }, []);
+=======
+            const provider = inferProviderFromModel(modelPreference.textModel);
+            const candidateKeys = getCandidateApiKeys('text', provider);
+            return await withApiKeyFallback(candidateKeys, (key) =>
+                enhancePromptWithProvider(payload, modelPreference.textModel, key)
+            );
+        } finally {
+            setIsEnhancingPrompt(false);
+        }
+    }, [getCandidateApiKeys, modelPreference.textModel, withApiKeyFallback]);
+>>>>>>> Stashed changes
 
     const handleSetActiveCharacterLock = useCallback((id: string | null) => {
         setActiveCharacterLockId(id);
@@ -1839,8 +2072,45 @@ const App: React.FC = () => {
     }, [editingElement?.text, setElements]);
 
 
+<<<<<<< Updated upstream
     const handleGenerate = async (promptOverride?: string) => {
         const rawPrompt = (promptOverride ?? prompt).trim();
+=======
+        // 按照 prompt 中 @label 出现的位置排序
+        const mentionOrder: { element: ImageElement; index: number }[] = [];
+        for (const el of mentionedImages) {
+            // 尝试匹配 @name 或 @label（CanvasMentionExtension 输出的格式）
+            const escapedName = (el.name || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const regex = new RegExp(`@${escapedName}\\b`, 'i');
+            const match = rawPrompt.match(regex);
+            mentionOrder.push({ element: el, index: match ? match.index! : Infinity });
+        }
+        mentionOrder.sort((a, b) => a.index - b.index);
+
+        // 替换 prompt 中的 @label → [参考图N]
+        let processedPrompt = rawPrompt;
+        const orderedImages: { href: string; mimeType: string }[] = [];
+        mentionOrder.forEach(({ element }, idx) => {
+            const escapedName = (element.name || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+            const regex = new RegExp(`@${escapedName}\\b`, 'gi');
+            processedPrompt = processedPrompt.replace(regex, `[参考图${idx + 1}]`);
+            orderedImages.push({ href: element.href, mimeType: element.mimeType });
+        });
+
+        // 如果有多张参考图，在 prompt 前添加说明
+        if (orderedImages.length > 1) {
+            const mapping = orderedImages.map((_, i) => `[参考图${i + 1}]`).join('、');
+            processedPrompt = `以下提示词中包含 ${mapping} 分别对应按顺序传入的参考图片。\n${processedPrompt}`;
+        }
+
+        return { prompt: processedPrompt, orderedMentionImages: orderedImages };
+    }, []);
+
+
+    const handleGenerate = async (promptOverride?: string, source: 'prompt' | 'right' = 'prompt') => {
+        const sharedPrompt = promptScope === 'node' && nodePromptDraft.trim() ? nodePromptDraft : prompt;
+        let rawPrompt = (promptOverride ?? sharedPrompt).trim();
+>>>>>>> Stashed changes
         if (!rawPrompt) {
             setError('Please enter a prompt.');
             return;
@@ -1860,7 +2130,147 @@ const App: React.FC = () => {
         const characterReferenceImages = activeCharacterLock
             ? [{ href: activeCharacterLock.referenceImage, mimeType: getMimeFromDataUrl(activeCharacterLock.referenceImage) }]
             : [];
+<<<<<<< Updated upstream
         const attachmentReferenceImages = chatAttachments.map(item => ({ href: item.href, mimeType: item.mimeType }));
+=======
+        const activeAttachments = source === 'right' ? chatAttachments : promptAttachments;
+        const attachmentReferenceImages = activeAttachments.map(item => ({ href: item.href, mimeType: item.mimeType }));
+        const imageProvider = inferProviderFromModel(modelPreference.imageModel);
+        const videoProvider = inferProviderFromModel(modelPreference.videoModel);
+        // 跨全部候选 key 检测能力 — 只要有任一候选 key 配置了对应 App ID 就视为支持
+        const runninghubCandidateKeys = imageProvider === 'runninghub' ? getCandidateApiKeys('image', 'runninghub') : [];
+        const supportsReferenceEditing = imageProvider === 'google'
+            || (imageProvider === 'runninghub' && runninghubCandidateKeys.some(k => !!k.runninghub?.imageToImageAppId));
+        const supportsMaskEditing = imageProvider === 'google'
+            || (imageProvider === 'runninghub' && runninghubCandidateKeys.some(k => !!k.runninghub?.inpaintAppId));
+        const referenceEditingErrorMessage = imageProvider === 'runninghub'
+            ? 'RunningHub 图生图需要先在设置里填写图生图 App ID。当前如果只配置了文生图，则请移除参考图或切换到纯文生图模式。'
+            : '当前图片模型不支持基于白板的编辑或合成。请切换到 Gemini 或 Imagen 图片模型。';
+        const maskEditingErrorMessage = imageProvider === 'runninghub'
+            ? 'RunningHub 局部重绘需要先在设置里填写局部重绘 App ID 和遮罩参数名。'
+            : referenceEditingErrorMessage;
+        const imageOutputName = generationMode === 'keyframe' ? 'Keyframe' : 'Generated Image';
+
+        /**
+         * ======== 首尾帧动画模式 (Keyframe Mode) ========
+         *
+         * 【功能】用户选中或 @引用一张起始帧图片，Veo 2.0 会基于该图片
+         *        生成一段平滑的过渡动画视频并放置到画布上。
+         *
+         * 【参考图优先级】选中图片 > @引用图片
+         * 【输出】VideoElement（blob URL），放置在画布中心
+         *
+         * 【限制】Veo API 当前仅支持单张参考图作为起始帧，
+         *        如有两张以上参考图会在提示词中描述过渡意图。
+         */
+        if (generationMode === 'keyframe') {
+            try {
+                // 前置检查：首尾帧动画仅支持 Google Veo 模型
+                if (videoProvider !== 'google') {
+                    throw new Error('首尾帧动画目前仅支持 Google Veo 模型，请先配置 Google 视频 API Key。');
+                }
+
+                // 收集参考帧图片：优先选中的 → 然后 @引用的
+                const mentionedImages = mentionedElementIds
+                    .map(id => elements.find(el => el.id === id))
+                    .filter((el): el is ImageElement => !!el && el.type === 'image');
+                const selectedImages = elements
+                    .filter(el => selectedElementIds.includes(el.id) && el.type === 'image') as ImageElement[];
+                const allFrameRefs = [...selectedImages, ...mentionedImages];
+
+                // 至少需要 1 张参考图作为起始帧
+                if (allFrameRefs.length < 1) {
+                    setError('首尾帧模式至少需要 1 张参考图（选中或 @引用画布图片）作为起始帧。');
+                    setIsLoading(false);
+                    return;
+                }
+
+                // 取第一张图片作为 Veo 的 image 参数（API 只接受单张）
+                const startFrame = allFrameRefs[0];
+                // 如有 ≥2 张参考图，在提示词中描述"从首帧过渡到尾帧"
+                const keyframePrompt = allFrameRefs.length >= 2
+                    ? `Animate a smooth cinematic transition from the first frame to the second frame. ${effectivePrompt}`
+                    : `Animate this image with smooth motion. ${effectivePrompt}`;
+
+                setProgressMessage('正在生成首尾帧过渡动画...');
+                const candidateKeys = getCandidateApiKeys('video', videoProvider);
+                const { videoBlob, mimeType } = await withApiKeyFallback(
+                    candidateKeys,
+                    (key) => generateVideo(
+                        keyframePrompt,
+                        videoAspectRatio,
+                        (message) => setProgressMessage(message),
+                        { href: startFrame.href, mimeType: startFrame.mimeType },
+                        key?.key,
+                    )
+                );
+
+                // 将视频 Blob 转为 URL 并获取尺寸元数据
+                setProgressMessage('处理视频中...');
+                const videoUrl = URL.createObjectURL(videoBlob);
+                const video = document.createElement('video');
+
+                video.onloadedmetadata = () => {
+                    if (!svgRef.current) return;
+
+                    // 限制最大尺寸 800px 以免画布元素过大
+                    let newWidth = video.videoWidth;
+                    let newHeight = video.videoHeight;
+                    const MAX_DIM = 800;
+                    if (newWidth > MAX_DIM || newHeight > MAX_DIM) {
+                        const ratio = newWidth / newHeight;
+                        if (ratio > 1) { newWidth = MAX_DIM; newHeight = MAX_DIM / ratio; }
+                        else { newHeight = MAX_DIM; newWidth = MAX_DIM * ratio; }
+                    }
+
+                    // 放置到画布可视区域中心
+                    const svgBounds = svgRef.current!.getBoundingClientRect();
+                    const screenCenter = { x: svgBounds.left + svgBounds.width / 2, y: svgBounds.top + svgBounds.height / 2 };
+                    const canvasPoint = getCanvasPoint(screenCenter.x, screenCenter.y);
+
+                    const newVideoElement: VideoElement = {
+                        id: generateId(), type: 'video', name: 'Keyframe Animation',
+                        x: canvasPoint.x - (newWidth / 2), y: canvasPoint.y - (newHeight / 2),
+                        width: newWidth, height: newHeight,
+                        href: videoUrl, mimeType,
+                    };
+                    commitAction(prev => [...prev, newVideoElement]);
+                    setSelectedElementIds([newVideoElement.id]);
+
+                    // 截取视频第一帧作为缩略图保存到历史记录
+                    try {
+                        const canvas = document.createElement('canvas');
+                        canvas.width = video.videoWidth;
+                        canvas.height = video.videoHeight;
+                        const ctx = canvas.getContext('2d');
+                        if (ctx) {
+                            ctx.drawImage(video, 0, 0);
+                            const thumbnailUrl = canvas.toDataURL('image/png');
+                            saveGenerationToHistory({
+                                name: 'Keyframe Animation',
+                                dataUrl: thumbnailUrl,
+                                mimeType: 'image/png',
+                                width: video.videoWidth,
+                                height: video.videoHeight,
+                                prompt: effectivePrompt,
+                                mediaType: 'video',
+                            });
+                        }
+                    } catch { /* 缩略图失败不影响主流程 */ }
+
+                    setIsLoading(false);
+                };
+                video.onerror = () => { setError('无法加载生成的关键帧视频。'); setIsLoading(false); };
+                video.src = videoUrl;
+            } catch (err) {
+                const error = err as Error;
+                setError(`首尾帧动画生成失败: ${error.message}`);
+                console.error('Keyframe generation failed:', error);
+                setIsLoading(false);
+            }
+            return;
+        }
+>>>>>>> Stashed changes
 
         if (generationMode === 'video') {
             try {
@@ -1879,11 +2289,16 @@ const App: React.FC = () => {
                     return;
                 }
                 
-                const { videoBlob, mimeType } = await generateVideo(
-                    effectivePrompt, 
-                    videoAspectRatio, 
-                    (message) => setProgressMessage(message), 
-                    baseVideoReference
+                const candidateKeys = getCandidateApiKeys('video', videoProvider);
+                const { videoBlob, mimeType } = await withApiKeyFallback(
+                    candidateKeys,
+                    (key) => generateVideo(
+                        effectivePrompt,
+                        videoAspectRatio,
+                        (message) => setProgressMessage(message),
+                        baseVideoReference,
+                        key?.key,
+                    )
                 );
 
                 setProgressMessage('Processing video...');
@@ -1958,18 +2373,35 @@ const App: React.FC = () => {
                 .filter((el): el is ImageElement => !!el && el.type === 'image' && !selectedElementIds.includes(el.id));
 
             if (isEditing) {
+<<<<<<< Updated upstream
+=======
+                if (!supportsReferenceEditing) {
+                    setError(referenceEditingErrorMessage);
+                    return;
+                }
+>>>>>>> Stashed changes
                 const selectedElements = elements.filter(el => selectedElementIds.includes(el.id));
                 const imageElements = selectedElements.filter(el => el.type === 'image') as ImageElement[];
                 const maskPaths = selectedElements.filter(el => el.type === 'path' && el.strokeOpacity && el.strokeOpacity < 1) as PathElement[];
 
                 // Inpainting logic: selection is ONLY one image and one or more mask paths
                 if (imageElements.length === 1 && maskPaths.length > 0 && selectedElements.length === (1 + maskPaths.length)) {
+                    if (!supportsMaskEditing) {
+                        setError(maskEditingErrorMessage);
+                        return;
+                    }
                     const baseImage = imageElements[0];
                     const maskData = await rasterizeMask(maskPaths, baseImage);
-                    const result = await editImage(
-                        [{ href: baseImage.href, mimeType: baseImage.mimeType }],
-                        effectivePrompt,
-                        { href: maskData.href, mimeType: maskData.mimeType }
+                    const candidateKeys = getCandidateApiKeys('image', imageProvider);
+                    const result = await withApiKeyFallback(
+                        candidateKeys,
+                        (key) => editImageWithProvider(
+                            [{ href: baseImage.href, mimeType: baseImage.mimeType }],
+                            effectivePrompt,
+                            modelPreference.imageModel,
+                            { href: maskData.href, mimeType: maskData.mimeType },
+                            key,
+                        )
                     );
                     
                     if (result.newImageBase64 && result.newImageMimeType) {
@@ -2010,11 +2442,26 @@ const App: React.FC = () => {
                 });
                 const imagesToProcess = await Promise.all(imagePromises);
 
+<<<<<<< Updated upstream
                 // Append @mentioned reference images
                 const mentionRefs = mentionedImageElements.map(el => ({ href: el.href, mimeType: el.mimeType }));
                 const result = await editImage(
                     [...imagesToProcess, ...mentionRefs, ...attachmentReferenceImages, ...characterReferenceImages],
                     effectivePrompt
+=======
+                // Append @mentioned reference images — 按 prompt 中出现顺序排列
+                const { prompt: mentionPrompt, orderedMentionImages } = buildMentionAwarePrompt(effectivePrompt, mentionedImageElements);
+                const candidateKeys = getCandidateApiKeys('image', imageProvider);
+                const result = await withApiKeyFallback(
+                    candidateKeys,
+                    (key) => editImageWithProvider(
+                        [...imagesToProcess, ...orderedMentionImages, ...attachmentReferenceImages, ...characterReferenceImages],
+                        mentionPrompt,
+                        modelPreference.imageModel,
+                        undefined,
+                        key,
+                    )
+>>>>>>> Stashed changes
                 );
 
                 if (result.newImageBase64 && result.newImageMimeType) {
@@ -2051,14 +2498,29 @@ const App: React.FC = () => {
                 // No canvas selection, but user @mentioned image elements 鈫?use editImage as reference-guided generation
 =======
                 if (!supportsReferenceEditing) {
-                    setError('The current image model does not support @ reference image generation. Please switch to a Gemini or Imagen image model.');
+                    setError(referenceEditingErrorMessage);
                     return;
                 }
                 // No canvas selection, but user @mentioned image elements 闁?use editImage as reference-guided generation
 >>>>>>> Stashed changes
                 setProgressMessage('Generating with reference images...');
+<<<<<<< Updated upstream
                 const mentionRefs = mentionedImageElements.map(el => ({ href: el.href, mimeType: el.mimeType }));
                 const result = await editImage([...mentionRefs, ...attachmentReferenceImages, ...characterReferenceImages], effectivePrompt);
+=======
+                const { prompt: mentionPrompt2, orderedMentionImages: orderedRefs } = buildMentionAwarePrompt(effectivePrompt, mentionedImageElements);
+                const candidateKeys = getCandidateApiKeys('image', imageProvider);
+                const result = await withApiKeyFallback(
+                    candidateKeys,
+                    (key) => editImageWithProvider(
+                        [...orderedRefs, ...attachmentReferenceImages, ...characterReferenceImages],
+                        mentionPrompt2,
+                        modelPreference.imageModel,
+                        undefined,
+                        key,
+                    )
+                );
+>>>>>>> Stashed changes
 
                 if (result.newImageBase64 && result.newImageMimeType) {
                     const { newImageBase64, newImageMimeType } = result;
@@ -2087,9 +2549,30 @@ const App: React.FC = () => {
             } else {
                 // Generate from scratch
                 const baseRefs = [...attachmentReferenceImages, ...characterReferenceImages];
+<<<<<<< Updated upstream
                 const result = baseRefs.length > 0
                     ? await editImage(baseRefs, effectivePrompt)
                     : await generateImageFromText(effectivePrompt);
+=======
+                if (baseRefs.length > 0 && !supportsReferenceEditing) {
+                    setError(referenceEditingErrorMessage);
+                    return;
+                }
+                const candidateKeys = getCandidateApiKeys('image', imageProvider);
+                const result = baseRefs.length > 0
+                    ? await withApiKeyFallback(
+                        candidateKeys,
+                        (key) => editImageWithProvider(baseRefs, effectivePrompt, modelPreference.imageModel, undefined, key)
+                    )
+                    : await withApiKeyFallback(
+                        candidateKeys,
+                        (key) => generateImageWithProvider(
+                            effectivePrompt,
+                            modelPreference.imageModel,
+                            key,
+                        )
+                    );
+>>>>>>> Stashed changes
 
                 if (result.newImageBase64 && result.newImageMimeType) {
                     const { newImageBase64, newImageMimeType } = result;
@@ -2482,6 +2965,7 @@ const App: React.FC = () => {
         return `data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(fullSvg)))}`;
     }, []);
 
+<<<<<<< Updated upstream
     const boardThumbnails = useMemo(() => {
         if (!isBoardPanelOpen) return {} as Record<string, string>;
         const next: Record<string, string> = {};
@@ -2643,6 +3127,10 @@ const App: React.FC = () => {
 
     return (
         <div className="flex h-[100dvh] w-screen flex-col overflow-hidden font-sans" style={{ backgroundColor: workspaceSurface }} onDragOver={handleDragOver} onDrop={handleDrop}>
+=======
+    const canvasView = (
+        <div className="theme-aware w-screen h-screen flex flex-col font-sans" style={{ backgroundColor: themePalette.appBackground }} onDragOver={handleDragOver} onDrop={handleDrop}>
+>>>>>>> Stashed changes
             {isLoading && <Loader progressMessage={progressMessage} />}
             {error && (
                 <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 p-3 bg-red-100 border border-red-400 text-red-700 rounded-md shadow-lg flex items-center max-w-lg">
@@ -2652,6 +3140,7 @@ const App: React.FC = () => {
                     </button>
                 </div>
             )}
+<<<<<<< Updated upstream
             <BoardPanel
                 isOpen={isBoardPanelOpen}
                 onClose={() => setIsBoardPanelOpen(false)}
@@ -2708,6 +3197,158 @@ const App: React.FC = () => {
                 setModelPreference={setModelPreference}
                 t={t}
             />
+=======
+            {workspaceMode === 'whiteboard' && (
+                <>
+                    <WorkspaceSidebar
+                        isOpen={!isLayerMinimized}
+                        onToggle={() => setIsLayerMinimized(prev => !prev)}
+                        outerGap={chromeMetrics.outerGap}
+                        panelWidth={chromeMetrics.sidebarWidth}
+                        boards={boards}
+                        activeBoardId={activeBoardId}
+                        onSwitchBoard={setActiveBoardId}
+                        onAddBoard={handleAddBoard}
+                        onRenameBoard={handleRenameBoard}
+                        onDuplicateBoard={handleDuplicateBoard}
+                        onDeleteBoard={handleDeleteBoard}
+                        generateBoardThumbnail={(els) => generateBoardThumbnail(els, canvasBackgroundColor)}
+                        elements={elements}
+                        selectedElementIds={selectedElementIds}
+                        onSelectElement={id => setSelectedElementIds(id ? [id] : [])}
+                        onToggleVisibility={id => handlePropertyChange(id, { isVisible: !(elements.find(el => el.id === id)?.isVisible ?? true) })}
+                        onToggleLock={id => handlePropertyChange(id, { isLocked: !(elements.find(el => el.id === id)?.isLocked ?? false) })}
+                        onRenameElement={(id, name) => handlePropertyChange(id, { name })}
+                        onReorder={(draggedId, targetId, position) => {
+                            commitAction(prev => {
+                                const newElements = [...prev];
+                                const draggedIndex = newElements.findIndex(el => el.id === draggedId);
+                                if (draggedIndex === -1) return prev;
+
+                                const [draggedItem] = newElements.splice(draggedIndex, 1);
+                                const targetIndex = newElements.findIndex(el => el.id === targetId);
+                                if (targetIndex === -1) {
+                                    newElements.push(draggedItem);
+                                    return newElements;
+                                }
+
+                                const finalIndex = position === 'before' ? targetIndex : targetIndex + 1;
+                                newElements.splice(finalIndex, 0, draggedItem);
+                                return newElements;
+                            });
+                        }}
+                    />
+                    <RightPanel
+                        theme={resolvedTheme}
+                        isMinimized={isInspirationMinimized}
+                        onToggleMinimize={() => setIsInspirationMinimized(prev => !prev)}
+                        outerGap={chromeMetrics.outerGap}
+                        defaultWidth={chromeMetrics.rightPanelDefaultWidth}
+                        minWidth={chromeMetrics.rightPanelMinWidth}
+                        widthCap={chromeMetrics.rightPanelWidthCap}
+                        compactMode={chromeMetrics.isTablet}
+                        library={assetLibrary}
+                        generationHistory={generationHistory}
+                        attachments={chatAttachments}
+                        onRemove={(cat, id) => setAssetLibrary(prev => removeAsset(prev, cat, id))}
+                        onRename={(cat, id, name) => setAssetLibrary(prev => renameAsset(prev, cat, id, name))}
+                        onGenerate={(nextPrompt) => {
+                            setPrompt(nextPrompt);
+                            handleGenerate(nextPrompt, 'right');
+                        }}
+                        onAddAttachments={handleAddAttachmentFiles}
+                        onRemoveAttachment={handleRemoveChatAttachment}
+                        onWidthChange={setRightPanelWidth}
+                    />
+                </>
+            )}
+            <SettingsErrorBoundary isDark={resolvedTheme === 'dark'} onClose={() => setIsSettingsPanelOpen(false)}>
+                <CanvasSettings 
+                    isOpen={isSettingsPanelOpen} 
+                    onClose={() => setIsSettingsPanelOpen(false)} 
+                    language={language}
+                    setLanguage={setLanguage}
+                    themeMode={themeMode}
+                    resolvedTheme={resolvedTheme}
+                    setThemeMode={setThemeMode}
+                    wheelAction={wheelAction}
+                    setWheelAction={setWheelAction}
+                    userApiKeys={userApiKeys}
+                    onAddApiKey={handleAddApiKey}
+                    onDeleteApiKey={handleDeleteApiKey}
+                    onUpdateApiKey={handleUpdateApiKey}
+                    onSetDefaultApiKey={handleSetDefaultApiKey}
+                    modelPreference={modelPreference}
+                    setModelPreference={setModelPreference}
+                    t={t}
+                    apiConfigStore={apiConfigStore}
+                    clearKeysOnExit={clearKeysOnExit}
+                    setClearKeysOnExit={setClearKeysOnExit}
+                />
+            </SettingsErrorBoundary>
+            {/* 新用户引导弹窗 — 无 API Key 时自动出现 */}
+            <OnboardingWizard
+                isOpen={showOnboarding}
+                onClose={() => {
+                    setShowOnboarding(false);
+                    localStorage.setItem('onboarding.skipped', 'true');
+                }}
+                onAddApiKey={handleAddApiKey}
+                resolvedTheme={resolvedTheme}
+            />
+            {workspaceMode === 'whiteboard' && (
+                <Toolbar
+                    t={t}
+                    theme={resolvedTheme}
+                    compactScale={chromeMetrics.toolbarScale}
+                    topOffset={chromeMetrics.outerGap}
+                    leftClosed={chromeMetrics.toolbarLeftClosed}
+                    leftOpen={chromeMetrics.toolbarLeftOpen}
+                    activeTool={activeTool}
+                    setActiveTool={setActiveTool}
+                    drawingOptions={drawingOptions}
+                    setDrawingOptions={setDrawingOptions}
+                    onUpload={handleAddImageElement}
+                    isCropping={!!croppingState}
+                    onConfirmCrop={handleConfirmCrop}
+                    onCancelCrop={handleCancelCrop}
+                    onSettingsClick={() => setIsSettingsPanelOpen(true)}
+                    onLayersClick={() => setIsLayerMinimized(prev => !prev)}
+                    onBoardsClick={() => setIsLayerMinimized(prev => !prev)}
+                    onAssetsClick={() => setIsInspirationMinimized(prev => !prev)}
+                    onUndo={handleUndo}
+                    onRedo={handleRedo}
+                    isLayerPanelExpanded={!isLayerMinimized}
+                    onHeightChange={() => { /* reserved for aligning external buttons under toolbar */ }}
+                    onLeftChange={(left) => setToolbarLeft(left)}
+                    canUndo={historyIndex > 0}
+                    canRedo={historyIndex < history.length - 1}
+                />
+            )}
+            <div
+                className="fixed left-1/2 z-[1000] -translate-x-1/2"
+                style={{ top: chromeMetrics.outerGap + 8 }}
+            >
+                <div className={`flex items-center gap-1 rounded-full border p-1 shadow-[0_16px_40px_rgba(15,23,42,0.16)] backdrop-blur-md ${resolvedTheme === 'dark' ? 'border-[#2A3140] bg-[#12151B]/92' : 'border-[#E4E7EC] bg-white/92'}`}>
+                    <button
+                        type="button"
+                        onClick={() => setWorkspaceMode('whiteboard')}
+                        className={`rounded-full px-4 py-1.5 text-xs font-semibold transition ${workspaceMode === 'whiteboard' ? (resolvedTheme === 'dark' ? 'bg-[#F3F4F6] text-[#111827]' : 'bg-[#111827] text-white') : (resolvedTheme === 'dark' ? 'text-[#98A2B3] hover:bg-[#1B2029] hover:text-white' : 'text-[#667085] hover:bg-[#F5F7FA] hover:text-[#111827]')}`}
+                        title="切换到 Lovart 白板模式"
+                    >
+                        Lovart
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => setWorkspaceMode('node')}
+                        className={`rounded-full px-4 py-1.5 text-xs font-semibold transition ${workspaceMode === 'node' ? (resolvedTheme === 'dark' ? 'bg-[#7CB4FF] text-[#08111F]' : 'bg-[#175CD3] text-white') : (resolvedTheme === 'dark' ? 'text-[#98A2B3] hover:bg-[#1B2029] hover:text-white' : 'text-[#667085] hover:bg-[#F5F7FA] hover:text-[#111827]')}`}
+                        title="切换到 Tapnow 节点模式"
+                    >
+                        Tapnow
+                    </button>
+                </div>
+            </div>
+>>>>>>> Stashed changes
             {addAssetModal?.open && (
                 <AssetAddModal 
                     isOpen={addAssetModal.open}
@@ -2935,6 +3576,7 @@ const App: React.FC = () => {
             <div 
                 className="flex-grow relative overflow-hidden"
                 style={{
+<<<<<<< Updated upstream
                     paddingLeft: isCompactLayout ? '10px' : (desktopLayersVisible ? '336px' : '24px'),
                     paddingRight: isCompactLayout ? '10px' : (desktopChatVisible ? '360px' : '24px'),
                     paddingTop: isCompactLayout ? '0px' : '20px',
@@ -2957,6 +3599,18 @@ const App: React.FC = () => {
                         </div>
                     </div>
                 )}
+=======
+                    paddingRight: workspaceMode === 'node' ? '0px' : (chromeMetrics.isTablet ? `${chromeMetrics.outerGap}px` : `${rightPanelWidth + chromeMetrics.promptSideInset}px`),
+                    paddingBottom: croppingState || workspaceMode === 'node' ? '0px' : `${chromeMetrics.canvasBottomInset}px`,
+                    transition: 'padding-right 0.35s cubic-bezier(0.4, 0, 0.2, 1), padding-bottom 0.35s cubic-bezier(0.4, 0, 0.2, 1)'
+                }}
+            >
+                {workspaceMode === 'node' ? (
+                    <div className="absolute inset-0 px-3 pb-3 pt-2">
+                        <NodeWorkflowPage embedded />
+                    </div>
+                ) : (
+>>>>>>> Stashed changes
                 <svg
                     ref={svgRef}
                     className="w-full h-full"
@@ -3296,6 +3950,7 @@ const App: React.FC = () => {
                         )}
                     </g>
                 </svg>
+                )}
                  {contextMenu && (() => {
                     const hasDrawableSelection = elements.some(el => selectedElementIds.includes(el.id) && el.type !== 'image' && el.type !== 'video');
                     const isGroupable = selectedElementIds.length > 1;
@@ -3325,6 +3980,7 @@ const App: React.FC = () => {
                     );
                 })()}
             </div>
+<<<<<<< Updated upstream
             {!croppingState && !isCompactLayout && (
                 <div className="pointer-events-none absolute inset-0 z-[39]">
                     <div
@@ -3335,6 +3991,18 @@ const App: React.FC = () => {
                             width: 'clamp(380px, 34vw, 560px)',
                         }}
                     >
+=======
+            {!croppingState && workspaceMode === 'whiteboard' && (
+                <div 
+                    className="compact-prompt-dock absolute bottom-0 left-0 right-0 z-[40] transition-all duration-300 ease-out flex justify-center pointer-events-none"
+                    style={{
+                        paddingLeft: chromeMetrics.isTablet ? `${chromeMetrics.promptSideInset}px` : `${isLayerMinimized ? chromeMetrics.outerGap : chromeMetrics.sidebarWidth + chromeMetrics.outerGap + 8}px`,
+                        paddingRight: chromeMetrics.isTablet ? `${chromeMetrics.promptSideInset}px` : `${rightPanelWidth + chromeMetrics.promptSideInset}px`,
+                        paddingBottom: `${chromeMetrics.promptDockBottom}px`
+                    }}
+                >
+                    <div className="compact-prompt-dock__inner pointer-events-auto w-full transition-transform hover:-translate-y-0.5 duration-300 drop-shadow-xl" style={{ maxWidth: `${chromeMetrics.promptMaxWidth}px` }}>
+>>>>>>> Stashed changes
                         <PromptBar 
                             t={t}
                             prompt={prompt} 
@@ -3466,6 +4134,8 @@ const App: React.FC = () => {
             )}
         </div>
     );
+
+    return canvasView;
 };
 
 export default App;
