@@ -21,6 +21,33 @@ interface CanvasElementBase {
   parentId?: string;
 }
 
+/** 图片滤镜/调色参数 */
+export interface ImageFilters {
+  brightness: number;   // 0–200, default 100
+  contrast: number;     // 0–200, default 100
+  saturate: number;     // 0–200, default 100
+  hueRotate: number;    // 0–360, default 0
+  blur: number;         // 0–20,  default 0
+  opacity: number;      // 0–100, default 100
+  grayscale: number;    // 0–100, default 0
+  sepia: number;        // 0–100, default 0
+  temperature: number;  // -100–100, default 0 (暖色/冷色)
+  sharpen: number;      // 0–100, default 0
+}
+
+export const DEFAULT_IMAGE_FILTERS: ImageFilters = {
+  brightness: 100,
+  contrast: 100,
+  saturate: 100,
+  hueRotate: 0,
+  blur: 0,
+  opacity: 100,
+  grayscale: 0,
+  sepia: 0,
+  temperature: 0,
+  sharpen: 0,
+};
+
 export interface ImageElement extends CanvasElementBase {
   type: 'image';
   href: string; 
@@ -28,6 +55,9 @@ export interface ImageElement extends CanvasElementBase {
   height: number;
   mimeType: string;
   borderRadius?: number;
+  filters?: Partial<ImageFilters>;
+  /** Non-destructive layer mask: data URL of grayscale image. White = visible, Black = hidden */
+  mask?: string;
 }
 
 export interface VideoElement extends CanvasElementBase {

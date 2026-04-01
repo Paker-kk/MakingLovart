@@ -63,6 +63,9 @@ interface PromptBarProps {
     // API Key 联动
     userApiKeys?: UserApiKey[];
     onOpenSettings?: () => void;
+    // 批量生成
+    batchCount?: number;
+    onBatchCountChange?: (count: number) => void;
 }
 
 type ExpandPanel = 'mode' | 'model' | 'more' | null;
@@ -166,6 +169,8 @@ export const PromptBar: React.FC<PromptBarProps> = ({
     onApiModelChange,
     userApiKeys = [],
     onOpenSettings,
+    batchCount = 1,
+    onBatchCountChange,
 }) => {
     const isDark = theme === 'dark';
     const rootRef = useRef<HTMLDivElement>(null);
@@ -558,6 +563,25 @@ export const PromptBar: React.FC<PromptBarProps> = ({
                         </div>
                     </div>
 
+                    {/* Batch count toggle */}
+                    {generationMode === 'image' && onBatchCountChange && (
+                        <button
+                            type="button"
+                            onClick={() => {
+                                const next = batchCount === 1 ? 2 : batchCount === 2 ? 4 : 1;
+                                onBatchCountChange(next);
+                            }}
+                            title={batchCount === 1 ? '单张生成 — 点击切换批量' : `批量生成 ${batchCount} 张方案`}
+                            className={`flex h-9 min-w-[36px] items-center justify-center rounded-xl px-2 text-xs font-semibold transition ${
+                                batchCount > 1
+                                    ? (isDark ? 'bg-blue-600 text-white' : 'bg-blue-500 text-white')
+                                    : (isDark ? 'bg-[#2A3142] text-[#98A2B3] hover:bg-[#3A4458]' : 'bg-[#F2F4F7] text-[#667085] hover:bg-[#E4E7EC]')
+                            }`}
+                        >
+                            ×{batchCount}
+                        </button>
+                    )}
+
                     <button
                         type="button"
                         onClick={() => {
@@ -575,7 +599,7 @@ export const PromptBar: React.FC<PromptBarProps> = ({
                             </svg>
                         ) : (
                             <div className="flex items-center gap-1.5">
-                                <span className="text-xs font-semibold">生成</span>
+                                <span className="text-xs font-semibold">{batchCount > 1 ? `生成 ×${batchCount}` : '生成'}</span>
                                 <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
                                     <path d="M5 12h14" />
                                     <path d="m12 5 7 7-7 7" />

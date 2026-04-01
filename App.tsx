@@ -11,11 +11,14 @@ import { Loader } from './components/Loader';
 import { CanvasSettings } from './components/CanvasSettings';
 import { OnboardingWizard } from './components/OnboardingWizard';
 import { WorkspaceSidebar } from './components/WorkspaceSidebar';
-import type { Tool, Point, Element, ImageElement, PathElement, ShapeElement, TextElement, ArrowElement, UserEffect, LineElement, WheelAction, GroupElement, Board, VideoElement, AssetLibrary, AssetCategory, AssetItem, UserApiKey, ModelPreference, AIProvider, AICapability, PromptEnhanceMode, CharacterLockProfile, GenerationHistoryItem, ThemeMode, ChatAttachment } from './types';
+import type { Tool, Point, Element, ImageElement, PathElement, ShapeElement, TextElement, ArrowElement, UserEffect, LineElement, WheelAction, GroupElement, Board, VideoElement, AssetLibrary, AssetCategory, AssetItem, UserApiKey, ModelPreference, AIProvider, AICapability, PromptEnhanceMode, CharacterLockProfile, GenerationHistoryItem, ThemeMode, ChatAttachment, ImageFilters } from './types';
+import { DEFAULT_IMAGE_FILTERS } from './types';
 import { AssetLibraryPanel } from './components/AssetLibraryPanel';
 import { InspirationPanel } from './components/InspirationPanel';
 import { RightPanel } from './components/RightPanel';
 import { AssetAddModal } from './components/AssetAddModal';
+import { ImageFilterPanel, buildCssFilter, temperatureMatrix, sharpenKernel } from './components/ImageFilterPanel';
+import { ABCompareOverlay } from './components/ABCompareOverlay';
 import { loadAssetLibrary, addAsset, removeAsset, renameAsset } from './utils/assetStorage';
 import { loadGenerationHistory, addGenerationHistoryItem } from './utils/generationHistory';
 import { editImage, generateImageFromText, generateVideo, setGeminiRuntimeConfig, enhancePromptWithGemini } from './services/geminiService';
@@ -489,6 +492,8 @@ const App: React.FC = () => {
     const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
     const [wheelAction, setWheelAction] = useState<WheelAction>('zoom');
     const [croppingState, setCroppingState] = useState<{ elementId: string; originalElement: ImageElement; cropBox: Rect } | null>(null);
+    const [filterPanelElementId, setFilterPanelElementId] = useState<string | null>(null);
+    const [outpaintMenuId, setOutpaintMenuId] = useState<string | null>(null);
     const [alignmentGuides, setAlignmentGuides] = useState<Guide[]>([]);
     const [contextMenu, setContextMenu] = useState<{ x: number; y: number; elementId: string | null } | null>(null);
     const [assetLibrary, setAssetLibrary] = useState<AssetLibrary>(() => loadAssetLibrary());
@@ -541,6 +546,14 @@ const App: React.FC = () => {
 
     const [editingElement, setEditingElement] = useState<{ id: string; text: string; } | null>(null);
     const [lassoPath, setLassoPath] = useState<Point[] | null>(null);
+
+    // Inpaint (局部重绘) state
+    const [inpaintState, setInpaintState] = useState<{
+        targetImageId: string;
+        maskPoints: Point[];  // lasso polygon in canvas coords
+        promptVisible: boolean;
+    } | null>(null);
+    const [inpaintPrompt, setInpaintPrompt] = useState('');
 
     const [language, setLanguage] = useState<'en' | 'zho'>('en');
     const [themeMode, setThemeMode] = useState<ThemeMode>(() => {
@@ -601,6 +614,23 @@ const App: React.FC = () => {
     const [isAutoEnhanceEnabled, setIsAutoEnhanceEnabled] = useState<boolean>(() => {
         try { return localStorage.getItem('autoEnhance.v1') === 'true'; } catch { return false; }
     });
+    const [batchCount, setBatchCount] = useState<number>(1); // 1 = normal, 2/4 = batch mode
+    const [batchResults, setBatchResults] = useState<{
+        prompt: string;
+        images: { href: string; mimeType: string; width: number; height: number }[];
+    } | null>(null);
+
+    // ── Layer Mask 编辑状态 ──────
+    const [maskEditingId, setMaskEditingId] = useState<string | null>(null); // 正在编辑蒙版的 image element id
+    const [maskBrushSize, setMaskBrushSize] = useState(30);
+    const [maskBrushMode, setMaskBrushMode] = useState<'erase' | 'reveal'>('erase'); // erase = paint black (hide), reveal = paint white (show)
+    const maskCanvasRef = useRef<HTMLCanvasElement | null>(null);
+
+    // ── A/B 对比状态 ──────
+    const [abCompare, setAbCompare] = useState<{
+        imageA: { src: string; label: string };
+        imageB: { src: string; label: string };
+    } | null>(null);
 
     // ── 统一 API Key 选择器状态（替代旧的 apiConfigStore） ──────
     const [activeUserKeyId, setActiveUserKeyId] = React.useState<string | null>(null);
@@ -755,6 +785,13 @@ const App: React.FC = () => {
             setActiveCharacterLockId(null);
         }
     }, [characterLocks, activeCharacterLockId]);
+
+    // Close filter panel when selection changes
+    useEffect(() => {
+        if (filterPanelElementId && !selectedElementIds.includes(filterPanelElementId)) {
+            setFilterPanelElementId(null);
+        }
+    }, [selectedElementIds, filterPanelElementId]);
 
     const getPreferredApiKey = useCallback((capability: AICapability, provider?: AIProvider) => {
         const matches = userApiKeys.filter(key => {
@@ -1295,6 +1332,14 @@ const App: React.FC = () => {
     };
     
     const handleMouseDown = (e: React.MouseEvent<SVGSVGElement>) => {
+        // Layer mask painting intercept
+        if (maskEditingId && e.button === 0) {
+            const pt = getCanvasPoint(e.clientX, e.clientY);
+            paintMask(pt.x, pt.y);
+            interactionMode.current = 'mask-paint' as any;
+            e.preventDefault();
+            return;
+        }
         if (editingElement) return;
         if (contextMenu) setContextMenu(null);
 
@@ -1451,6 +1496,12 @@ const App: React.FC = () => {
     };
 
     const handleMouseMove = (e: React.MouseEvent<SVGSVGElement>) => {
+        // Layer mask painting intercept
+        if (interactionMode.current === ('mask-paint' as any)) {
+            const pt = getCanvasPoint(e.clientX, e.clientY);
+            paintMask(pt.x, pt.y);
+            return;
+        }
         if (!interactionMode.current) return;
         const point = getCanvasPoint(e.clientX, e.clientY);
         const startCanvasPoint = getCanvasPoint(startPoint.current.x, startPoint.current.y);
@@ -1735,6 +1786,11 @@ const App: React.FC = () => {
     };
     
     const handleMouseUp = () => {
+        // Layer mask painting intercept
+        if (interactionMode.current === ('mask-paint' as any)) {
+            interactionMode.current = null;
+            return;
+        }
         if (interactionMode.current) {
             if (interactionMode.current === 'selectBox' && selectionBox) {
                 const selectedIds: string[] = [];
@@ -1751,6 +1807,34 @@ const App: React.FC = () => {
                 });
                 setSelectedElementIds([...new Set(selectedIds)]);
             } else if (interactionMode.current === 'lasso' && lassoPath && lassoPath.length > 2) {
+                // Check if lasso is drawn ON TOP of a single selected image → trigger inpaint mode
+                const singleImg = selectedElementIds.length === 1
+                    ? elements.find(el => el.id === selectedElementIds[0] && el.type === 'image') as ImageElement | undefined
+                    : undefined;
+                if (singleImg) {
+                    const imgBounds = getElementBounds(singleImg, elements);
+                    const lassoCenter: Point = {
+                        x: lassoPath.reduce((s, p) => s + p.x, 0) / lassoPath.length,
+                        y: lassoPath.reduce((s, p) => s + p.y, 0) / lassoPath.length,
+                    };
+                    const isOnImage = lassoCenter.x >= imgBounds.x && lassoCenter.x <= imgBounds.x + imgBounds.width
+                        && lassoCenter.y >= imgBounds.y && lassoCenter.y <= imgBounds.y + imgBounds.height;
+                    if (isOnImage) {
+                        // Enter inpaint mode
+                        setInpaintState({ targetImageId: singleImg.id, maskPoints: [...lassoPath], promptVisible: true });
+                        setInpaintPrompt('');
+                        setLassoPath(null);
+                        interactionMode.current = null;
+                        currentDrawingElementId.current = null;
+                        setSelectionBox(null);
+                        resizeStartInfo.current = null;
+                        cropStartInfo.current = null;
+                        setAlignmentGuides([]);
+                        dragStartElementPositions.current.clear();
+                        return; // early exit — don't clear selection
+                    }
+                }
+                // Normal lasso selection
                 const selectedIds = elements.filter(el => {
                     const bounds = getElementBounds(el, elements);
                     const center: Point = { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 };
@@ -2032,6 +2116,106 @@ const App: React.FC = () => {
         }
     };
 
+    /**
+     * ======== AI 扩图 (Outpainting) ========
+     *
+     * 在原始图片周围扩展画布，用 AI 填充新增区域。
+     * @param element - 目标图片
+     * @param direction - 扩展方向
+     * @param expandRatio - 扩展比例（0.25 = 各方向扩展原尺寸的 25%）
+     */
+    const handleOutpaint = async (element: ImageElement, direction: 'all' | 'left' | 'right' | 'up' | 'down', expandRatio = 0.3) => {
+        setIsLoading(true);
+        setError(null);
+        setProgressMessage(`正在 AI 扩图 (${direction})...`);
+
+        try {
+            const img = new Image();
+            img.crossOrigin = 'anonymous';
+            await new Promise<void>((resolve, reject) => {
+                img.onload = () => resolve();
+                img.onerror = reject;
+                img.src = element.href;
+            });
+
+            const ow = img.naturalWidth;
+            const oh = img.naturalHeight;
+            const padL = (direction === 'all' || direction === 'left') ? Math.round(ow * expandRatio) : 0;
+            const padR = (direction === 'all' || direction === 'right') ? Math.round(ow * expandRatio) : 0;
+            const padT = (direction === 'all' || direction === 'up') ? Math.round(oh * expandRatio) : 0;
+            const padB = (direction === 'all' || direction === 'down') ? Math.round(oh * expandRatio) : 0;
+            const nw = ow + padL + padR;
+            const nh = oh + padT + padB;
+
+            // Build expanded canvas with original image in the center
+            const expandCanvas = document.createElement('canvas');
+            expandCanvas.width = nw;
+            expandCanvas.height = nh;
+            const ectx = expandCanvas.getContext('2d')!;
+            ectx.fillStyle = '#808080'; // neutral gray for expanded area
+            ectx.fillRect(0, 0, nw, nh);
+            ectx.drawImage(img, padL, padT, ow, oh);
+            const expandedDataUrl = expandCanvas.toDataURL('image/png');
+
+            // Build mask: white = areas to fill, black = keep (original image area)
+            const maskCanvas = document.createElement('canvas');
+            maskCanvas.width = nw;
+            maskCanvas.height = nh;
+            const mctx = maskCanvas.getContext('2d')!;
+            mctx.fillStyle = 'white';
+            mctx.fillRect(0, 0, nw, nh);
+            mctx.fillStyle = 'black';
+            mctx.fillRect(padL, padT, ow, oh);
+            const maskDataUrl = maskCanvas.toDataURL('image/png');
+
+            setProgressMessage('AI 正在补全画面...');
+
+            const result = await editImage(
+                [{ href: expandedDataUrl, mimeType: 'image/png' }],
+                `Seamlessly extend the image content outward. Continue the existing scene, lighting, and style naturally into the new areas. Do not change or alter the original central area.`,
+                { href: maskDataUrl, mimeType: 'image/png' },
+            );
+
+            if (result && result.newImageBase64) {
+                const newMime = result.newImageMimeType || 'image/png';
+                const newHref = `data:${newMime};base64,${result.newImageBase64}`;
+                // Update element: adjust position (shift by padding) and size
+                commitAction(prev => prev.map(el =>
+                    el.id === element.id
+                        ? {
+                            ...el,
+                            href: newHref,
+                            mimeType: newMime,
+                            x: element.x - padL * (element.width / ow),
+                            y: element.y - padT * (element.height / oh),
+                            width: element.width * (nw / ow),
+                            height: element.height * (nh / oh),
+                        }
+                        : el
+                ));
+
+                saveGenerationToHistory({
+                    name: `Outpaint (${direction})`,
+                    dataUrl: newHref,
+                    mimeType: newMime,
+                    width: nw,
+                    height: nh,
+                    prompt: `Outpaint ${direction}`,
+                });
+
+                setProgressMessage('扩图完成！');
+            } else {
+                setError('AI 扩图未返回结果，请重试。');
+            }
+        } catch (err) {
+            const error = err as Error;
+            setError(`AI 扩图失败: ${error.message}`);
+        } finally {
+            setIsLoading(false);
+            setTimeout(() => setProgressMessage(''), 1500);
+        }
+    };
+
     const handleStartCrop = (element: ImageElement) => {
         setActiveTool('select');
         setCroppingState({
@@ -2162,6 +2346,101 @@ const App: React.FC = () => {
         return { prompt: processedPrompt, orderedMentionImages: orderedImages };
     }, []);
 
+    /**
+     * ======== 局部选区 AI 重绘 (Inpaint) ========
+     *
+     * 用户在已选中的图片上用 Lasso 画出选区后，输入提示词进行 AI 局部重绘。
+     * 选区会被转为黑白 mask，白色=重绘区域，黑色=保留区域。
+     * 通过 Gemini editImage 接口（支持 inpainting）完成重绘。
+     */
+    const handleInpaint = async () => {
+        if (!inpaintState || !inpaintPrompt.trim()) return;
+        const targetImage = elements.find(el => el.id === inpaintState.targetImageId) as ImageElement | undefined;
+        if (!targetImage) { setInpaintState(null); return; }
+
+        // Check API key availability
+        const imageProvider = inferProviderFromModel(modelPreference.imageModel);
+        const hasKey = userApiKeys.some(k => {
+            const caps = k.capabilities?.length ? k.capabilities : inferCapabilitiesByProvider(k.provider);
+            return caps.includes('image') && k.provider === imageProvider;
+        });
+        if (!hasKey) {
+            setError('未找到可用于图片编辑的 API Key，请先在设置中配置。');
+            setIsSettingsPanelOpen(true);
+            return;
+        }
+
+        setIsLoading(true);
+        setError(null);
+        setProgressMessage('正在生成 AI 局部重绘 mask...');
+
+        try {
+            // Convert lasso polygon to a rasterized mask (white = inpaint area)
+            const { width, height, x: imgX, y: imgY } = targetImage;
+            const maskCanvas = document.createElement('canvas');
+            maskCanvas.width = width;
+            maskCanvas.height = height;
+            const maskCtx = maskCanvas.getContext('2d')!;
+
+            // Black background = keep area
+            maskCtx.fillStyle = 'black';
+            maskCtx.fillRect(0, 0, width, height);
+
+            // White fill inside lasso polygon = inpaint area
+            maskCtx.fillStyle = 'white';
+            maskCtx.beginPath();
+            const pts = inpaintState.maskPoints;
+            maskCtx.moveTo(pts[0].x - imgX, pts[0].y - imgY);
+            for (let i = 1; i < pts.length; i++) {
+                maskCtx.lineTo(pts[i].x - imgX, pts[i].y - imgY);
+            }
+            maskCtx.closePath();
+            maskCtx.fill();
+
+            const maskDataUrl = maskCanvas.toDataURL('image/png');
+
+            setProgressMessage('正在 AI 局部重绘...');
+
+            // Use Gemini editImage with mask
+            const result = await editImage(
+                [{ href: targetImage.href, mimeType: targetImage.mimeType }],
+                inpaintPrompt.trim(),
+                { href: maskDataUrl, mimeType: 'image/png' },
+            );
+
+            if (result && result.newImageBase64) {
+                // Replace the target image content (non-destructive: keep position/size)
+                const newMime = result.newImageMimeType || 'image/png';
+                commitAction(prev => prev.map(el =>
+                    el.id === targetImage.id
+                        ? { ...el, href: `data:${newMime};base64,${result.newImageBase64}`, mimeType: newMime }
+                        : el
+                ));
+
+                // Save to history
+                saveGenerationToHistory({
+                    name: `Inpaint: ${inpaintPrompt.trim().slice(0, 30)}`,
+                    dataUrl: `data:${newMime};base64,${result.newImageBase64}`,
+                    mimeType: newMime,
+                    width: targetImage.width,
+                    height: targetImage.height,
+                    prompt: inpaintPrompt.trim(),
+                });
+
+                setProgressMessage('局部重绘完成！');
+            } else {
+                setError('AI 局部重绘未返回结果，请重试。');
+            }
+        } catch (err) {
+            const error = err as Error;
+            setError(`局部重绘失败: ${error.message}`);
+        } finally {
+            setIsLoading(false);
+            setInpaintState(null);
+            setInpaintPrompt('');
+            setTimeout(() => setProgressMessage(''), 1500);
+        }
+    };
 
     const handleGenerate = async (promptOverride?: string, source: 'prompt' | 'right' = 'prompt') => {
         let rawPrompt = (promptOverride ?? prompt).trim();
@@ -2679,6 +2958,200 @@ const App: React.FC = () => {
         }
     };
 
+    /**
+     * ======== 批量生成对比 (Batch Generation) ========
+     *
+     * 并行调用 N 次图片生成 API，在弹窗中对比结果，用户选择最佳方案放到画布。
+     */
+    const handleBatchGenerate = async () => {
+        const rawPrompt = prompt.trim();
+        if (!rawPrompt || batchCount <= 1) return;
+
+        const imageProvider = inferProviderFromModel(modelPreference.imageModel);
+        const hasKey = userApiKeys.some(k => {
+            const caps = k.capabilities?.length ? k.capabilities : inferCapabilitiesByProvider(k.provider);
+            return caps.includes('image') && k.provider === imageProvider;
+        });
+        if (!hasKey) {
+            setError('未找到可用于图片生成的 API Key。');
+            setIsSettingsPanelOpen(true);
+            return;
+        }
+
+        setIsLoading(true);
+        setError(null);
+        setProgressMessage(`正在批量生成 ${batchCount} 张方案...`);
+
+        try {
+            const tasks = Array.from({ length: batchCount }, (_, i) =>
+                generateImageWithProvider(
+                    rawPrompt + (i > 0 ? ` (variation ${i + 1})` : ''),
+                    modelPreference.imageModel,
+                    getPreferredApiKey('image', imageProvider)
+                ).catch(() => null)
+            );
+            const results = await Promise.all(tasks);
+
+            const images: { href: string; mimeType: string; width: number; height: number }[] = [];
+            for (const res of results) {
+                if (res && res.newImageBase64 && res.newImageMimeType) {
+                    const href = `data:${res.newImageMimeType};base64,${res.newImageBase64}`;
+                    // Get dimensions
+                    const dim = await new Promise<{ w: number; h: number }>((resolve) => {
+                        const img = new Image();
+                        img.onload = () => resolve({ w: img.width, h: img.height });
+                        img.onerror = () => resolve({ w: 512, h: 512 });
+                        img.src = href;
+                    });
+                    images.push({ href, mimeType: res.newImageMimeType, width: dim.w, height: dim.h });
+                }
+            }
+
+            if (images.length === 0) {
+                setError('批量生成失败，所有请求均未返回图片。');
+            } else {
+                setBatchResults({ prompt: rawPrompt, images });
+                setProgressMessage(`生成完成: ${images.length}/${batchCount} 张成功`);
+            }
+        } catch (err) {
+            setError(`批量生成出错: ${(err as Error).message}`);
+        } finally {
+            setIsLoading(false);
+            setTimeout(() => setProgressMessage(''), 1500);
+        }
+    };
+
+    /** 用户从批量结果中选择一张放到画布 */
+    const handleSelectBatchResult = (img: { href: string; mimeType: string; width: number; height: number }) => {
+        if (!svgRef.current) return;
+        const svgBounds = svgRef.current.getBoundingClientRect();
+        const canvasPoint = getCanvasPoint(
+            svgBounds.left + svgBounds.width / 2,
+            svgBounds.top + svgBounds.height / 2
+        );
+        const newImage: ImageElement = {
+            id: generateId(), type: 'image',
+            x: canvasPoint.x - img.width / 2,
+            y: canvasPoint.y - img.height / 2,
+            name: 'Batch Pick',
+            width: img.width, height: img.height,
+            href: img.href, mimeType: img.mimeType,
+        };
+        commitAction(prev => [...prev, newImage]);
+        setSelectedElementIds([newImage.id]);
+        saveGenerationToHistory({
+            name: 'Batch Pick',
+            dataUrl: img.href,
+            mimeType: img.mimeType,
+            width: img.width,
+            height: img.height,
+            prompt: batchResults?.prompt || '',
+        });
+        setBatchResults(null);
+    };
+
+    /** 将批量结果全部放到画布（网格排列） */
+    const handleSelectAllBatchResults = () => {
+        if (!batchResults || !svgRef.current) return;
+        const svgBounds = svgRef.current.getBoundingClientRect();
+        const center = getCanvasPoint(
+            svgBounds.left + svgBounds.width / 2,
+            svgBounds.top + svgBounds.height / 2
+        );
+        const cols = batchResults.images.length <= 2 ? 2 : 2;
+        const gap = 20;
+        const newEls: ImageElement[] = batchResults.images.map((img, i) => {
+            const col = i % cols;
+            const row = Math.floor(i / cols);
+            return {
+                id: generateId(), type: 'image',
+                x: center.x + (col - cols / 2) * (img.width + gap),
+                y: center.y + (row - 0.5) * (img.height + gap),
+                name: `Batch ${i + 1}`,
+                width: img.width, height: img.height,
+                href: img.href, mimeType: img.mimeType,
+            };
+        });
+        commitAction(prev => [...prev, ...newEls]);
+        setSelectedElementIds(newEls.map(e => e.id));
+        setBatchResults(null);
+    };
+
+    /**
+     * ======== 图层蒙版编辑 (Layer Mask) ========
+     */
+    const startMaskEditing = useCallback((elementId: string) => {
+        const el = elements.find(e => e.id === elementId && e.type === 'image') as ImageElement | undefined;
+        if (!el) return;
+        // Create an offscreen canvas to hold mask data
+        const canvas = document.createElement('canvas');
+        canvas.width = Math.round(el.width);
+        canvas.height = Math.round(el.height);
+        const ctx = canvas.getContext('2d');
+        if (!ctx) return;
+        // If existing mask, draw it; otherwise fill white (fully visible)
+        if (el.mask) {
+            const img = new Image();
+            img.onload = () => {
+                ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+                maskCanvasRef.current = canvas;
+                setMaskEditingId(elementId);
+            };
+            img.src = el.mask;
+        } else {
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            maskCanvasRef.current = canvas;
+            setMaskEditingId(elementId);
+        }
+    }, [elements]);
+
+    const commitMask = useCallback(() => {
+        if (!maskCanvasRef.current || !maskEditingId) return;
+        const dataUrl = maskCanvasRef.current.toDataURL('image/png');
+        commitAction(prev => prev.map(el =>
+            el.id === maskEditingId && el.type === 'image' ? { ...el, mask: dataUrl } : el
+        ));
+        setMaskEditingId(null);
+        maskCanvasRef.current = null;
+    }, [maskEditingId, commitAction]);
+
+    const cancelMask = useCallback(() => {
+        setMaskEditingId(null);
+        maskCanvasRef.current = null;
+    }, []);
+
+    const clearMask = useCallback(() => {
+        if (!maskEditingId) return;
+        commitAction(prev => prev.map(el =>
+            el.id === maskEditingId && el.type === 'image' ? { ...el, mask: undefined } : el
+        ));
+        setMaskEditingId(null);
+        maskCanvasRef.current = null;
+    }, [maskEditingId, commitAction]);
+
+    /** Paint on mask canvas at a given canvas-space point */
+    const paintMask = useCallback((canvasX: number, canvasY: number) => {
+        const el = elements.find(e => e.id === maskEditingId && e.type === 'image') as ImageElement | undefined;
+        if (!el || !maskCanvasRef.current) return;
+        const ctx = maskCanvasRef.current.getContext('2d');
+        if (!ctx) return;
+        // Convert canvas point to element-local coordinates
+        const localX = (canvasX - el.x) / el.width * maskCanvasRef.current.width;
+        const localY = (canvasY - el.y) / el.height * maskCanvasRef.current.height;
+        const brushR = maskBrushSize / el.width * maskCanvasRef.current.width;
+        ctx.globalCompositeOperation = 'source-over';
+        ctx.fillStyle = maskBrushMode === 'erase' ? '#000000' : '#ffffff';
+        ctx.beginPath();
+        ctx.arc(localX, localY, brushR / 2, 0, Math.PI * 2);
+        ctx.fill();
+        // Live-update the element mask for preview
+        const dataUrl = maskCanvasRef.current.toDataURL('image/png');
+        setElements(prev => prev.map(e =>
+            e.id === maskEditingId && e.type === 'image' ? { ...e, mask: dataUrl } : e
+        ));
+    }, [maskEditingId, maskBrushSize, maskBrushMode, elements, setElements]);
+
     const handleRunNodeWorkflow = async (opts: { autoEnhance: boolean; enhanceMode: PromptEnhanceMode; stylePreset?: string }) => {
         let finalPrompt = prompt;
         if (opts.autoEnhance && prompt.trim()) {
@@ -2958,7 +3431,8 @@ const App: React.FC = () => {
     const singleSelectedElement = selectedElementIds.length === 1 ? elements.find(el => el.id === selectedElementIds[0]) : null;
 
     let cursor = 'default';
-    if (croppingState) cursor = 'default';
+    if (maskEditingId) cursor = 'crosshair';
+    else if (croppingState) cursor = 'default';
     else if (interactionMode.current === 'pan') cursor = 'grabbing';
     else if (activeTool === 'pan') cursor = 'grab';
     else if (['draw', 'erase', 'rectangle', 'circle', 'triangle', 'arrow', 'line', 'text', 'highlighter', 'lasso'].includes(activeTool)) cursor = 'crosshair';
@@ -3136,6 +3610,102 @@ const App: React.FC = () => {
                 clearKeysOnExit={clearKeysOnExit}
                 setClearKeysOnExit={setClearKeysOnExit}
             />
+            {/* ============ 图层蒙版编辑浮动面板 ============ */}
+
+            {/* ============ A/B 对比弹窗 ============ */}
+            {abCompare && (
+                <ABCompareOverlay
+                    imageA={abCompare.imageA}
+                    imageB={abCompare.imageB}
+                    onClose={() => setAbCompare(null)}
+                    theme={resolvedTheme}
+                />
+            )}
+
+            {/* ============ 图层蒙版编辑浮动面板 (controls) ============ */}
+            {maskEditingId && (() => {
+                const maskEl = elements.find(e => e.id === maskEditingId) as ImageElement | undefined;
+                if (!maskEl) return null;
+                return (
+                    <div className="fixed top-4 left-1/2 -translate-x-1/2 z-[9998] flex items-center gap-3 px-4 py-2.5 rounded-2xl shadow-2xl border"
+                         style={{ background: resolvedTheme === 'dark' ? '#1C2333' : '#ffffff', borderColor: resolvedTheme === 'dark' ? '#2A3142' : '#e5e7eb' }}>
+                        <span className={`text-sm font-medium ${resolvedTheme === 'dark' ? 'text-white' : 'text-gray-900'}`}>蒙版编辑</span>
+                        <div className="h-5 w-px bg-gray-300" />
+                        <button onClick={() => setMaskBrushMode('erase')}
+                            className={`px-3 py-1 rounded-lg text-xs font-medium transition ${maskBrushMode === 'erase' ? 'bg-red-500 text-white' : (resolvedTheme === 'dark' ? 'bg-[#2A3142] text-gray-300' : 'bg-gray-100 text-gray-600')}`}>
+                            擦除
+                        </button>
+                        <button onClick={() => setMaskBrushMode('reveal')}
+                            className={`px-3 py-1 rounded-lg text-xs font-medium transition ${maskBrushMode === 'reveal' ? 'bg-green-500 text-white' : (resolvedTheme === 'dark' ? 'bg-[#2A3142] text-gray-300' : 'bg-gray-100 text-gray-600')}`}>
+                            恢复
+                        </button>
+                        <div className="h-5 w-px bg-gray-300" />
+                        <label className={`text-xs ${resolvedTheme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>笔刷</label>
+                        <input type="range" min="5" max="100" value={maskBrushSize} onChange={e => setMaskBrushSize(Number(e.target.value))} className="w-20 h-1 accent-blue-500" />
+                        <span className={`text-xs w-6 text-center ${resolvedTheme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>{maskBrushSize}</span>
+                        <div className="h-5 w-px bg-gray-300" />
+                        <button onClick={clearMask}
+                            className={`px-3 py-1 rounded-lg text-xs font-medium transition ${resolvedTheme === 'dark' ? 'bg-[#2A3142] hover:bg-[#3A4458] text-gray-300' : 'bg-gray-100 hover:bg-gray-200 text-gray-600'}`}>
+                            清除蒙版
+                        </button>
+                        <button onClick={commitMask}
+                            className="px-3 py-1 rounded-lg text-xs font-medium bg-blue-500 hover:bg-blue-600 text-white transition">
+                            完成
+                        </button>
+                        <button onClick={cancelMask}
+                            className={`px-3 py-1 rounded-lg text-xs font-medium transition ${resolvedTheme === 'dark' ? 'bg-[#2A3142] hover:bg-[#3A4458] text-gray-300' : 'bg-gray-100 hover:bg-gray-200 text-gray-600'}`}>
+                            取消
+                        </button>
+                    </div>
+                );
+            })()}
+
+            {/* ============ 批量生成结果对比弹窗 ============ */}
+            {batchResults && (
+                <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-black/60 backdrop-blur-sm"
+                     onClick={() => setBatchResults(null)}>
+                    <div className={`relative rounded-2xl shadow-2xl p-6 max-w-[90vw] max-h-[90vh] overflow-auto ${resolvedTheme === 'dark' ? 'bg-[#1C2333] text-white' : 'bg-white text-gray-900'}`}
+                         onClick={e => e.stopPropagation()}>
+                        <div className="flex items-center justify-between mb-4">
+                            <h3 className="text-lg font-semibold">批量生成结果 — 选择最佳方案</h3>
+                            <div className="flex gap-2">
+                                <button onClick={handleSelectAllBatchResults}
+                                    className={`px-3 py-1.5 rounded-lg text-xs font-medium transition ${resolvedTheme === 'dark' ? 'bg-[#2A3142] hover:bg-[#3A4458] text-white' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'}`}>
+                                    全部放入画布
+                                </button>
+                                <button onClick={() => setBatchResults(null)}
+                                    className={`px-3 py-1.5 rounded-lg text-xs font-medium transition ${resolvedTheme === 'dark' ? 'bg-[#2A3142] hover:bg-[#3A4458] text-white' : 'bg-gray-100 hover:bg-gray-200 text-gray-700'}`}>
+                                    关闭
+                                </button>
+                            </div>
+                        </div>
+                        <p className={`text-sm mb-4 ${resolvedTheme === 'dark' ? 'text-gray-400' : 'text-gray-500'}`}>
+                            提示词: {batchResults.prompt}
+                        </p>
+                        <div className={`grid gap-4 ${batchResults.images.length <= 2 ? 'grid-cols-2' : 'grid-cols-2'}`}>
+                            {batchResults.images.map((img, idx) => (
+                                <div key={idx}
+                                     className={`group relative rounded-xl overflow-hidden border-2 transition cursor-pointer hover:scale-[1.02] ${resolvedTheme === 'dark' ? 'border-[#2A3142] hover:border-blue-500' : 'border-gray-200 hover:border-blue-400'}`}
+                                     onClick={() => handleSelectBatchResult(img)}>
+                                    <img src={img.href} alt={`方案 ${idx + 1}`}
+                                         className="w-full h-auto max-h-[40vh] object-contain"
+                                         style={{ background: resolvedTheme === 'dark' ? '#0D1117' : '#F9FAFB' }} />
+                                    <div className={`absolute bottom-0 inset-x-0 p-3 bg-gradient-to-t ${resolvedTheme === 'dark' ? 'from-black/80' : 'from-black/50'} to-transparent opacity-0 group-hover:opacity-100 transition`}>
+                                        <div className="flex items-center justify-between">
+                                            <span className="text-white text-sm font-medium">方案 {idx + 1}</span>
+                                            <span className="text-white/80 text-xs">{img.width}×{img.height}</span>
+                                        </div>
+                                        <button className="mt-2 w-full py-1.5 bg-blue-500 hover:bg-blue-600 text-white rounded-lg text-xs font-medium transition">
+                                            选择此方案
+                                        </button>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* 新用户引导弹窗 — 无 API Key 时自动出现 */}
             <OnboardingWizard
                 isOpen={showOnboarding}
@@ -3330,11 +3900,34 @@ const App: React.FC = () => {
                             if (el.type === 'image') {
                                 const hasBorderRadius = el.borderRadius && el.borderRadius > 0;
                                 const clipPathId = `clip-${el.id}`;
+                                const maskId = el.mask ? `mask-${el.id}` : undefined;
+                                const cssFilter = buildCssFilter(el.filters);
+                                const hasTemp = el.filters?.temperature && el.filters.temperature !== 0;
+                                const hasSharpen = el.filters?.sharpen && el.filters.sharpen > 0;
+                                const svgFilterId = (hasTemp || hasSharpen) ? `imgfilter-${el.id}` : undefined;
+                                const combinedFilter = [cssFilter, svgFilterId ? `url(#${svgFilterId})` : ''].filter(Boolean).join(' ');
                                 return (
                                     <g
                                         key={el.id}
                                         data-id={el.id}
                                     >
+                                        {/* SVG filter defs for temperature / sharpen */}
+                                        {svgFilterId && (
+                                            <defs>
+                                                <filter id={svgFilterId} colorInterpolationFilters="sRGB">
+                                                    {hasTemp && <feColorMatrix type="matrix" values={temperatureMatrix(el.filters!.temperature!)} />}
+                                                    {hasSharpen && <feConvolveMatrix order="3" kernelMatrix={sharpenKernel(el.filters!.sharpen!)} preserveAlpha="true" />}
+                                                </filter>
+                                            </defs>
+                                        )}
+                                        {/* Non-destructive layer mask */}
+                                        {maskId && (
+                                            <defs>
+                                                <mask id={maskId} maskUnits="userSpaceOnUse" x={el.x} y={el.y} width={el.width} height={el.height}>
+                                                    <image href={el.mask} x={el.x} y={el.y} width={el.width} height={el.height} />
+                                                </mask>
+                                            </defs>
+                                        )}
                                         <image 
                                             transform={`translate(${el.x}, ${el.y})`} 
                                             href={el.href} 
@@ -3342,6 +3935,8 @@ const App: React.FC = () => {
                                             height={el.height} 
                                             className={croppingState && croppingState.elementId !== el.id ? 'opacity-30' : ''} 
                                             clipPath={hasBorderRadius ? `url(#${clipPathId})` : undefined}
+                                            mask={maskId ? `url(#${maskId})` : undefined}
+                                            style={combinedFilter ? { filter: combinedFilter } : undefined}
                                         />
                                         {selectionComponent}
                                     </g>
@@ -3371,6 +3966,119 @@ const App: React.FC = () => {
                         {lassoPath && (
                             <path d={lassoPath.map((p, i) => i === 0 ? `M ${p.x} ${p.y}` : `L ${p.x} ${p.y}`).join(' ')} stroke="rgb(59 130 246)" strokeWidth={1 / zoom} strokeDasharray={`${4/zoom} ${4/zoom}`} fill="rgba(59, 130, 246, 0.1)" />
                         )}
+
+                        {/* Inpaint mask overlay + prompt input */}
+                        {inpaintState && (() => {
+                            const pts = inpaintState.maskPoints;
+                            const pathD = pts.map((p, i) => `${i === 0 ? 'M' : 'L'} ${p.x} ${p.y}`).join(' ') + ' Z';
+                            const cx = pts.reduce((s, p) => s + p.x, 0) / pts.length;
+                            const cy = pts.reduce((s, p) => s + p.y, 0) / pts.length;
+                            const promptBoxW = 320 / zoom;
+                            const promptBoxH = 120 / zoom;
+                            return (
+                                <>
+                                    {/* Animated dashed mask outline */}
+                                    <path
+                                        d={pathD}
+                                        fill="rgba(239, 68, 68, 0.15)"
+                                        stroke="#ef4444"
+                                        strokeWidth={2 / zoom}
+                                        strokeDasharray={`${6/zoom} ${4/zoom}`}
+                                        pointerEvents="none"
+                                    >
+                                        <animate attributeName="stroke-dashoffset" from="0" to={`${20/zoom}`} dur="1s" repeatCount="indefinite" />
+                                    </path>
+                                    {/* Floating inpaint prompt box */}
+                                    {inpaintState.promptVisible && (
+                                        <foreignObject
+                                            x={cx - promptBoxW / 2}
+                                            y={cy - promptBoxH / 2}
+                                            width={promptBoxW}
+                                            height={promptBoxH}
+                                            style={{ overflow: 'visible' }}
+                                        >
+                                            <div
+                                                style={{
+                                                    transform: `scale(${1 / zoom})`,
+                                                    transformOrigin: 'top left',
+                                                    width: 320,
+                                                }}
+                                                onMouseDown={e => e.stopPropagation()}
+                                            >
+                                                <div style={{
+                                                    background: 'white',
+                                                    borderRadius: 12,
+                                                    boxShadow: '0 8px 32px rgba(0,0,0,0.2)',
+                                                    border: '2px solid #ef4444',
+                                                    padding: 12,
+                                                }}>
+                                                    <div style={{ fontSize: 12, fontWeight: 600, color: '#ef4444', marginBottom: 8 }}>
+                                                        🎯 AI 局部重绘
+                                                    </div>
+                                                    <textarea
+                                                        value={inpaintPrompt}
+                                                        onChange={e => setInpaintPrompt(e.target.value)}
+                                                        placeholder="描述你想在选区内生成的内容..."
+                                                        autoFocus
+                                                        style={{
+                                                            width: '100%',
+                                                            height: 48,
+                                                            border: '1px solid #d1d5db',
+                                                            borderRadius: 8,
+                                                            padding: '6px 10px',
+                                                            fontSize: 13,
+                                                            resize: 'none',
+                                                            outline: 'none',
+                                                        }}
+                                                        onKeyDown={e => {
+                                                            if (e.key === 'Enter' && !e.shiftKey) {
+                                                                e.preventDefault();
+                                                                handleInpaint();
+                                                            }
+                                                            if (e.key === 'Escape') {
+                                                                setInpaintState(null);
+                                                                setInpaintPrompt('');
+                                                            }
+                                                        }}
+                                                    />
+                                                    <div style={{ display: 'flex', gap: 8, marginTop: 8, justifyContent: 'flex-end' }}>
+                                                        <button
+                                                            onClick={() => { setInpaintState(null); setInpaintPrompt(''); }}
+                                                            style={{
+                                                                padding: '4px 12px',
+                                                                fontSize: 12,
+                                                                borderRadius: 6,
+                                                                border: '1px solid #d1d5db',
+                                                                background: 'white',
+                                                                cursor: 'pointer',
+                                                            }}
+                                                        >
+                                                            取消
+                                                        </button>
+                                                        <button
+                                                            onClick={handleInpaint}
+                                                            disabled={!inpaintPrompt.trim() || isLoading}
+                                                            style={{
+                                                                padding: '4px 16px',
+                                                                fontSize: 12,
+                                                                borderRadius: 6,
+                                                                border: 'none',
+                                                                background: inpaintPrompt.trim() ? '#ef4444' : '#fca5a5',
+                                                                color: 'white',
+                                                                cursor: inpaintPrompt.trim() ? 'pointer' : 'not-allowed',
+                                                                fontWeight: 600,
+                                                            }}
+                                                        >
+                                                            {isLoading ? '重绘中...' : '✨ 重绘'}
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        </foreignObject>
+                                    )}
+                                </>
+                            );
+                        })()}
                         
                         {alignmentGuides.map((guide, i) => (
                              <line key={i} x1={guide.type === 'v' ? guide.position : guide.start} y1={guide.type === 'h' ? guide.position : guide.start} x2={guide.type === 'v' ? guide.position : guide.end} y2={guide.type === 'h' ? guide.position : guide.end} stroke="red" strokeWidth={1/zoom} strokeDasharray={`${4/zoom} ${2/zoom}`} />
@@ -3416,7 +4124,7 @@ const App: React.FC = () => {
                                 }
                                 if (element.type === 'text') toolbarScreenWidth = 220;
                                 if (element.type === 'arrow' || element.type === 'line') toolbarScreenWidth = 220;
-                                if (element.type === 'image') toolbarScreenWidth = 500;
+                                if (element.type === 'image') toolbarScreenWidth = 620;
                                 if (element.type === 'video') toolbarScreenWidth = 160;
                                 if (element.type === 'group') toolbarScreenWidth = 80;
 
@@ -3452,6 +4160,65 @@ const App: React.FC = () => {
                                             </button>}
                                         {element.type === 'video' && <a title={t('contextMenu.download')} href={element.href} download={`video-${element.id}.mp4`} className="p-2 rounded hover:bg-gray-100 flex items-center justify-center"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg></a>}
                                         {element.type === 'image' && <button title={t('contextMenu.crop')} onClick={() => handleStartCrop(element)} className="p-2 rounded hover:bg-gray-100 flex items-center justify-center"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6.13 1L6 16a2 2 0 0 0 2 2h15"></path><path d="M1 6.13L16 6a2 2 0 0 1 2 2v15"></path></svg></button>}
+                                        {element.type === 'image' && <button title="调色 / Filters" onClick={() => setFilterPanelElementId(filterPanelElementId === element.id ? null : element.id)} className={`p-2 rounded flex items-center justify-center ${filterPanelElementId === element.id ? 'bg-blue-100 text-blue-600' : 'hover:bg-gray-100'}`}>
+                                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="13.5" cy="6.5" r="2.5"></circle><circle cx="17.5" cy="10.5" r="2.5"></circle><circle cx="8.5" cy="7.5" r="2.5"></circle><circle cx="6.5" cy="12.5" r="2.5"></circle><path d="M12 2C6.5 2 2 6.5 2 12s4.5 10 10 10c.926 0 1.648-.746 1.648-1.688 0-.437-.18-.835-.437-1.125-.29-.289-.438-.652-.438-1.125a1.64 1.64 0 0 1 1.668-1.668h1.996c3.051 0 5.555-2.503 5.555-5.554C21.965 6.012 17.461 2 12 2z"></path></svg>
+                                            </button>}
+                                        {element.type === 'image' && (
+                                            <div style={{ position: 'relative' }}>
+                                                <button title="AI 扩图 / Outpaint" onClick={() => setOutpaintMenuId(outpaintMenuId === element.id ? null : element.id)} className={`p-2 rounded flex items-center justify-center ${outpaintMenuId === element.id ? 'bg-green-100 text-green-600' : 'hover:bg-gray-100'}`} disabled={isLoading}>
+                                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="15 3 21 3 21 9"></polyline><polyline points="9 21 3 21 3 15"></polyline><line x1="21" y1="3" x2="14" y2="10"></line><line x1="3" y1="21" x2="10" y2="14"></line></svg>
+                                                </button>
+                                                {outpaintMenuId === element.id && (
+                                                    <div style={{
+                                                        position: 'absolute',
+                                                        top: '100%',
+                                                        left: '50%',
+                                                        transform: 'translateX(-50%)',
+                                                        background: 'white',
+                                                        borderRadius: 10,
+                                                        boxShadow: '0 8px 24px rgba(0,0,0,0.16)',
+                                                        border: '1px solid #e5e7eb',
+                                                        padding: 8,
+                                                        zIndex: 100,
+                                                        whiteSpace: 'nowrap',
+                                                        minWidth: 140,
+                                                    }}>
+                                                        {([
+                                                            { dir: 'all' as const, label: '↔ 全方向扩展', icon: '🔄' },
+                                                            { dir: 'up' as const, label: '⬆ 向上扩展', icon: '⬆' },
+                                                            { dir: 'down' as const, label: '⬇ 向下扩展', icon: '⬇' },
+                                                            { dir: 'left' as const, label: '⬅ 向左扩展', icon: '⬅' },
+                                                            { dir: 'right' as const, label: '➡ 向右扩展', icon: '➡' },
+                                                        ]).map(opt => (
+                                                            <button
+                                                                key={opt.dir}
+                                                                onClick={() => { setOutpaintMenuId(null); handleOutpaint(element, opt.dir); }}
+                                                                style={{
+                                                                    display: 'block',
+                                                                    width: '100%',
+                                                                    textAlign: 'left',
+                                                                    padding: '6px 12px',
+                                                                    borderRadius: 6,
+                                                                    border: 'none',
+                                                                    background: 'transparent',
+                                                                    cursor: 'pointer',
+                                                                    fontSize: 13,
+                                                                }}
+                                                                onMouseEnter={e => (e.currentTarget.style.background = '#f3f4f6')}
+                                                                onMouseLeave={e => (e.currentTarget.style.background = 'transparent')}
+                                                            >
+                                                                {opt.label}
+                                                            </button>
+                                                        ))}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+                                        {element.type === 'image' && (
+                                            <button title="图层蒙版 / Layer Mask" onClick={() => startMaskEditing(element.id)} className={`p-2 rounded flex items-center justify-center ${maskEditingId === element.id ? 'bg-purple-100 text-purple-600' : 'hover:bg-gray-100'}`}>
+                                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"></rect><path d="M12 3v18"></path><path d="M3 12h9"></path></svg>
+                                            </button>
+                                        )}
                                         
                                         {element.type === 'shape' && (
                                             <>
@@ -3483,9 +4250,31 @@ const App: React.FC = () => {
                                 </div>;
                                 
                                 return (
-                                    <foreignObject x={x} y={y} width={toolbarCanvasWidth} height={toolbarCanvasHeight} style={{ overflow: 'visible' }}>
-                                        {toolbar}
-                                    </foreignObject>
+                                    <>
+                                        <foreignObject x={x} y={y} width={toolbarCanvasWidth} height={toolbarCanvasHeight} style={{ overflow: 'visible' }}>
+                                            {toolbar}
+                                        </foreignObject>
+                                        {filterPanelElementId === element.id && element.type === 'image' && (() => {
+                                            const filterPanelW = 270 / zoom;
+                                            const filterPanelH = 440 / zoom;
+                                            const fpx = bounds.x + bounds.width + 10 / zoom;
+                                            const fpy = bounds.y;
+                                            return (
+                                                <foreignObject x={fpx} y={fpy} width={filterPanelW} height={filterPanelH} style={{ overflow: 'visible' }}>
+                                                    <div style={{ transform: `scale(${1 / zoom})`, transformOrigin: 'top left' }}>
+                                                        <ImageFilterPanel
+                                                            filters={element.filters || {}}
+                                                            onChange={(newFilters) => {
+                                                                handlePropertyChange(element.id, { filters: Object.keys(newFilters).length > 0 ? newFilters : undefined });
+                                                            }}
+                                                            onReset={() => handlePropertyChange(element.id, { filters: undefined })}
+                                                            onClose={() => setFilterPanelElementId(null)}
+                                                        />
+                                                    </div>
+                                                </foreignObject>
+                                            );
+                                        })()}
+                                    </>
                                 );
                             }
                             return null;
@@ -3571,6 +4360,42 @@ const App: React.FC = () => {
                                     <button onClick={handleRasterizeSelection} className="block w-full text-left px-4 py-1.5 hover:bg-gray-100">{t('contextMenu.rasterize')}</button>
                                 </>
                             )}
+                            {/* A/B Compare: show when right-clicking an image and there's at least 1 other image or history item */}
+                            {contextMenu.elementId && (() => {
+                                const ctxEl = elements.find(e => e.id === contextMenu.elementId);
+                                if (!ctxEl || ctxEl.type !== 'image') return null;
+                                const otherImages = elements.filter(e => e.type === 'image' && e.id !== ctxEl.id) as ImageElement[];
+                                const hasCompareTarget = otherImages.length > 0 || generationHistory.length > 0;
+                                if (!hasCompareTarget) return null;
+                                return (
+                                    <>
+                                        <div className="border-t border-gray-100 my-1"></div>
+                                        {otherImages.slice(0, 3).map(other => (
+                                            <button key={other.id} onClick={() => {
+                                                setAbCompare({
+                                                    imageA: { src: (ctxEl as ImageElement).href, label: ctxEl.name || 'A' },
+                                                    imageB: { src: other.href, label: other.name || 'B' },
+                                                });
+                                                setContextMenu(null);
+                                            }} className="block w-full text-left px-4 py-1.5 hover:bg-gray-100 truncate max-w-[200px]">
+                                                A/B 对比: {other.name || other.id.slice(0, 6)}
+                                            </button>
+                                        ))}
+                                        {generationHistory.length > 0 && (
+                                            <button onClick={() => {
+                                                const latest = generationHistory[0];
+                                                setAbCompare({
+                                                    imageA: { src: (ctxEl as ImageElement).href, label: ctxEl.name || '当前' },
+                                                    imageB: { src: latest.dataUrl, label: latest.name || latest.prompt.slice(0, 20) || '历史' },
+                                                });
+                                                setContextMenu(null);
+                                            }} className="block w-full text-left px-4 py-1.5 hover:bg-gray-100">
+                                                A/B 对比: 最近生成
+                                            </button>
+                                        )}
+                                    </>
+                                );
+                            })()}
                         </div>
                     );
                 })()}
@@ -3591,7 +4416,13 @@ const App: React.FC = () => {
                             compactMode={chromeMetrics.isTablet}
                             prompt={prompt} 
                             setPrompt={setPrompt} 
-                            onGenerate={() => handleGenerate(undefined, 'prompt')} 
+                            onGenerate={() => {
+                                if (batchCount > 1) {
+                                    handleBatchGenerate();
+                                } else {
+                                    handleGenerate(undefined, 'prompt');
+                                }
+                            }} 
                             isLoading={isLoading} 
                             isSelectionActive={isSelectionActive} 
                             selectedElementCount={selectedElementIds.length}
@@ -3632,6 +4463,8 @@ const App: React.FC = () => {
                             onApiModelChange={setActiveUserModelId}
                             userApiKeys={userApiKeys}
                             onOpenSettings={() => setIsSettingsPanelOpen(true)}
+                            batchCount={batchCount}
+                            onBatchCountChange={setBatchCount}
                         />
                     </div>
                 </div>
