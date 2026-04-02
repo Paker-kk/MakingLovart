@@ -1,7 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import type { AssetCategory, AssetItem, AssetLibrary, ChatAttachment, GenerationHistoryItem } from '../types';
+import type { AssetCategory, AssetItem, AssetLibrary, GenerationHistoryItem, UserApiKey } from '../types';
+import { AgentChatPanel } from './AgentChatPanel';
 
-type RightPanelTab = 'generate' | 'inspiration';
+type RightPanelTab = 'history' | 'inspiration' | 'agent';
 
 interface RightPanelProps {
     theme: 'light' | 'dark';
@@ -13,13 +14,13 @@ interface RightPanelProps {
     widthCap: number;
     compactMode: boolean;
     library: AssetLibrary;
+    textModel: string;
+    getApiKeyForModel: (model: string) => UserApiKey | undefined;
+    onAgentFinalPrompt?: (prompt: string) => void;
+    onAgentGenerateImage?: (prompt: string) => void;
     generationHistory: GenerationHistoryItem[];
-    attachments: ChatAttachment[];
     onRemove: (category: AssetCategory, id: string) => void;
     onRename: (category: AssetCategory, id: string, name: string) => void;
-    onGenerate: (prompt: string) => void;
-    onAddAttachments: (files: FileList | File[]) => void;
-    onRemoveAttachment: (id: string) => void;
     onWidthChange?: (width: number) => void;
 }
 
@@ -73,21 +74,20 @@ export const RightPanel: React.FC<RightPanelProps> = ({
     compactMode,
     library,
     generationHistory,
-    attachments,
     onRemove,
     onRename,
-    onGenerate,
-    onAddAttachments,
-    onRemoveAttachment,
     onWidthChange,
+    textModel,
+    getApiKeyForModel,
+    onAgentFinalPrompt,
+    onAgentGenerateImage,
 }) => {
     const isDark = theme === 'dark';
     const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
-    const [activeTab, setActiveTab] = useState<RightPanelTab>('generate');
+    const [activeTab, setActiveTab] = useState<RightPanelTab>('agent');
     const [category, setCategory] = useState<AssetCategory>('character');
     const [editingId, setEditingId] = useState<string | null>(null);
     const [editingName, setEditingName] = useState('');
-    const [prompt, setPrompt] = useState('');
     const [panelWidth, setPanelWidth] = useState(() => {
         const saved = localStorage.getItem('rightPanelWidth');
         return saved ? parseInt(saved, 10) : defaultWidth;
@@ -97,10 +97,6 @@ export const RightPanel: React.FC<RightPanelProps> = ({
     const [resizeStartWidth, setResizeStartWidth] = useState(380);
 
     const editInputRef = useRef<HTMLInputElement>(null);
-    const promptInputRef = useRef<HTMLTextAreaElement>(null);
-    const fileInputRef = useRef<HTMLInputElement>(null);
-    const uploadDragDepthRef = useRef(0);
-    const [isUploadDragActive, setIsUploadDragActive] = useState(false);
 
     const items = useMemo(() => library[category], [category, library]);
 
@@ -154,13 +150,6 @@ export const RightPanel: React.FC<RightPanelProps> = ({
         }
     }, [editingId]);
 
-    useEffect(() => {
-        const textarea = promptInputRef.current;
-        if (!textarea) return;
-        textarea.style.height = '0px';
-        textarea.style.height = `${Math.min(168, Math.max(88, textarea.scrollHeight))}px`;
-    }, [prompt]);
-
     const handleResizePointerDown = (event: React.PointerEvent) => {
         if (event.pointerType === 'mouse' && event.button !== 0) return;
         setIsResizing(true);
@@ -168,13 +157,6 @@ export const RightPanel: React.FC<RightPanelProps> = ({
         setResizeStartWidth(panelWidth);
         event.stopPropagation();
         event.preventDefault();
-    };
-
-    const handleGenerate = () => {
-        const nextPrompt = prompt.trim();
-        if (!nextPrompt) return;
-        onGenerate(nextPrompt);
-        setPrompt('');
     };
 
     const handleLibraryDragStart = (event: React.DragEvent, item: AssetItem) => {
@@ -272,18 +254,33 @@ export const RightPanel: React.FC<RightPanelProps> = ({
                     <div className={`flex items-center ${compactMode ? 'gap-1.5' : 'gap-2'}`}>
                         <button
                             type="button"
-                            onClick={() => setActiveTab('generate')}
+                            onClick={() => setActiveTab('agent')}
                             className={`rounded-xl ${compactMode ? 'px-2.5 py-1.5 text-[13px]' : 'px-3 py-1.5 text-sm'} transition-all ${
-                                activeTab === 'generate' ? 'bg-neutral-900 text-white' : 'text-neutral-600 hover:bg-neutral-100'
+                                activeTab === 'agent'
+                                    ? isDark ? 'bg-indigo-600 text-white' : 'bg-neutral-900 text-white'
+                                    : isDark ? 'text-gray-400 hover:bg-gray-800' : 'text-neutral-600 hover:bg-neutral-100'
                             }`}
                         >
-                            生成
+                            🤖 Agent
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setActiveTab('history')}
+                            className={`rounded-xl ${compactMode ? 'px-2.5 py-1.5 text-[13px]' : 'px-3 py-1.5 text-sm'} transition-all ${
+                                activeTab === 'history'
+                                    ? isDark ? 'bg-neutral-700 text-white' : 'bg-neutral-900 text-white'
+                                    : isDark ? 'text-gray-400 hover:bg-gray-800' : 'text-neutral-600 hover:bg-neutral-100'
+                            }`}
+                        >
+                            历史
                         </button>
                         <button
                             type="button"
                             onClick={() => setActiveTab('inspiration')}
                             className={`rounded-xl ${compactMode ? 'px-2.5 py-1.5 text-[13px]' : 'px-3 py-1.5 text-sm'} transition-all ${
-                                activeTab === 'inspiration' ? 'bg-neutral-900 text-white' : 'text-neutral-600 hover:bg-neutral-100'
+                                activeTab === 'inspiration'
+                                    ? isDark ? 'bg-neutral-700 text-white' : 'bg-neutral-900 text-white'
+                                    : isDark ? 'text-gray-400 hover:bg-gray-800' : 'text-neutral-600 hover:bg-neutral-100'
                             }`}
                         >
                             素材库
@@ -303,136 +300,15 @@ export const RightPanel: React.FC<RightPanelProps> = ({
                 </div>
 
                 <div className="min-h-0 flex-1 overflow-hidden">
-                    {activeTab === 'generate' && (
+                    {activeTab === 'history' && (
                         <div className={`flex h-full min-h-0 flex-col ${compactMode ? 'gap-3 p-3' : 'gap-4 p-4'}`}>
-                            <div
-                                className={`relative rounded-[26px] border ${compactMode ? 'p-3.5' : 'p-4'} shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] transition-all duration-200 ${
-                                    isUploadDragActive
-                                        ? 'scale-[1.01] border-blue-300 bg-blue-50 shadow-[0_18px_40px_rgba(59,130,246,0.12)]'
-                                        : 'border-neutral-200 bg-neutral-50'
-                                }`}
-                                onDragEnter={event => {
-                                    if (!Array.from(event.dataTransfer.items).some(item => item.type.startsWith('image/'))) return;
-                                    event.preventDefault();
-                                    uploadDragDepthRef.current += 1;
-                                    setIsUploadDragActive(true);
-                                }}
-                                onDragOver={event => {
-                                    if (!Array.from(event.dataTransfer.items).some(item => item.type.startsWith('image/'))) return;
-                                    event.preventDefault();
-                                    event.dataTransfer.dropEffect = 'copy';
-                                }}
-                                onDragLeave={event => {
-                                    if (!Array.from(event.dataTransfer.items).some(item => item.type.startsWith('image/'))) return;
-                                    event.preventDefault();
-                                    uploadDragDepthRef.current = Math.max(0, uploadDragDepthRef.current - 1);
-                                    if (uploadDragDepthRef.current === 0) {
-                                        setIsUploadDragActive(false);
-                                    }
-                                }}
-                                onDrop={event => {
-                                    event.preventDefault();
-                                    uploadDragDepthRef.current = 0;
-                                    setIsUploadDragActive(false);
-                                    if (event.dataTransfer.files?.length) {
-                                        onAddAttachments(event.dataTransfer.files);
-                                    }
-                                }}
-                            >
-                                {isUploadDragActive && (
-                                    <div className="pointer-events-none absolute inset-3 z-10 rounded-[22px] border border-dashed border-blue-300 bg-blue-50/90 backdrop-blur-sm">
-                                        <div className="flex h-full items-center justify-center">
-                                            <div className="rounded-full bg-white px-4 py-2 text-sm font-medium text-neutral-800 shadow-sm">
-                                                松手上传参考图
-                                            </div>
-                                        </div>
-                                    </div>
-                                )}
-
-                                <div className={`flex items-start ${compactMode ? 'gap-2.5' : 'gap-3'}`}>
-                                    <button
-                                        type="button"
-                                        onClick={() => fileInputRef.current?.click()}
-                                        className={`flex shrink-0 flex-col items-center justify-center rounded-[20px] border border-neutral-200 bg-white text-neutral-500 shadow-sm transition-all duration-200 hover:-translate-y-0.5 hover:text-neutral-800 ${compactMode ? 'h-[76px] w-[60px]' : 'h-[84px] w-[66px]'}`}
-                                        title="导入参考图"
-                                    >
-                                        <span className={`${compactMode ? 'text-xl' : 'text-2xl'} leading-none`}>+</span>
-                                        <span className="mt-2 text-[11px]">导图</span>
-                                    </button>
-
-                                    <textarea
-                                        ref={promptInputRef}
-                                        value={prompt}
-                                        onChange={event => setPrompt(event.target.value)}
-                                        placeholder="输入描述，右侧只保留轻量参考图导入。"
-                                        className={`flex-1 resize-none border-none bg-transparent px-1 py-1 text-neutral-800 outline-none placeholder:text-neutral-400 ${compactMode ? 'min-h-[76px] text-[14px] leading-6' : 'min-h-[84px] text-[15px] leading-7'}`}
-                                    />
-                                </div>
-
-                                <input
-                                    ref={fileInputRef}
-                                    type="file"
-                                    accept="image/*"
-                                    multiple
-                                    className="hidden"
-                                    onChange={event => {
-                                        if (event.target.files?.length) {
-                                            onAddAttachments(event.target.files);
-                                            event.target.value = '';
-                                        }
-                                    }}
-                                    title="上传参考图"
-                                    aria-label="上传参考图"
-                                />
-
-                                {attachments.length > 0 && (
-                                    <div className={`mt-4 flex gap-2 overflow-x-auto pb-1 ${compactMode ? '[&>div]:h-14 [&>div]:w-14' : ''}`}>
-                                        {attachments.map(attachment => (
-                                            <div
-                                                key={attachment.id}
-                                                className="group relative shrink-0 overflow-hidden rounded-2xl border border-neutral-200 bg-white transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md"
-                                            >
-                                                <img
-                                                    src={attachment.href}
-                                                    alt={attachment.name}
-                                                    className="h-full w-full object-cover"
-                                                />
-                                                <button
-                                                    type="button"
-                                                    onClick={() => onRemoveAttachment(attachment.id)}
-                                                    className="absolute right-1 top-1 flex h-5 w-5 items-center justify-center rounded-full bg-black/55 text-white opacity-0 transition group-hover:opacity-100"
-                                                    title="移除参考图"
-                                                >
-                                                    ×
-                                                </button>
-                                            </div>
-                                        ))}
-                                    </div>
-                                )}
-
-                                <div className={`mt-4 flex items-center justify-between gap-3 ${compactMode ? 'flex-col items-stretch' : ''}`}>
-                                    <div className="text-xs text-neutral-500">
-                                        参考图会自动作为生成输入使用
-                                    </div>
-
-                                    <button
-                                        type="button"
-                                        onClick={handleGenerate}
-                                        disabled={!prompt.trim()}
-                                        className={`flex items-center justify-center rounded-full bg-neutral-900 text-white transition-colors hover:bg-neutral-700 disabled:cursor-not-allowed disabled:bg-neutral-300 ${compactMode ? 'w-full px-4 py-2.5 text-sm' : 'px-4 py-2 text-sm'}`}
-                                    >
-                                        生成
-                                    </button>
-                                </div>
-                            </div>
-
                             <div className="flex min-h-0 flex-1 flex-col">
                                 <div className="mb-3 flex items-center justify-between">
                                     <div>
-                                        <h3 className="text-sm font-semibold text-neutral-900">历史生成</h3>
-                                        <p className="mt-1 text-xs text-neutral-500">自动保存到本地，可直接拖到白板。</p>
+                                        <h3 className={`text-sm font-semibold ${isDark ? 'text-gray-200' : 'text-neutral-900'}`}>历史生成</h3>
+                                        <p className={`mt-1 text-xs ${isDark ? 'text-gray-500' : 'text-neutral-500'}`}>自动保存到本地，可直接拖到白板。</p>
                                     </div>
-                                    <span className="rounded-full bg-neutral-100 px-2.5 py-1 text-[11px] text-neutral-500">
+                                    <span className={`rounded-full px-2.5 py-1 text-[11px] ${isDark ? 'bg-gray-800 text-gray-400' : 'bg-neutral-100 text-neutral-500'}`}>
                                         {generationHistory.length} 条
                                     </span>
                                 </div>
@@ -445,11 +321,13 @@ export const RightPanel: React.FC<RightPanelProps> = ({
                                             {generationHistory.map(item => (
                                                 <div
                                                     key={item.id}
-                                                    className="group cursor-grab rounded-[22px] border border-neutral-200 bg-white p-2 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md active:cursor-grabbing"
+                                                    className={`group cursor-grab rounded-[22px] border p-2 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md active:cursor-grabbing ${
+                                                        isDark ? 'border-gray-700 bg-gray-800' : 'border-neutral-200 bg-white'
+                                                    }`}
                                                     draggable
                                                     onDragStart={event => handleHistoryDragStart(event, item)}
                                                 >
-                                                    <div className="overflow-hidden rounded-[16px] bg-neutral-100">
+                                                    <div className={`overflow-hidden rounded-[16px] ${isDark ? 'bg-gray-700' : 'bg-neutral-100'}`}>
                                                         <img
                                                             src={item.dataUrl}
                                                             alt={item.name || item.prompt}
@@ -457,10 +335,10 @@ export const RightPanel: React.FC<RightPanelProps> = ({
                                                         />
                                                     </div>
                                                     <div className="px-1 pb-1 pt-2">
-                                                        <p className="line-clamp-2 text-xs font-medium leading-5 text-neutral-800">
+                                                        <p className={`line-clamp-2 text-xs font-medium leading-5 ${isDark ? 'text-gray-200' : 'text-neutral-800'}`}>
                                                             {item.name || item.prompt}
                                                         </p>
-                                                        <div className="mt-2 flex items-center justify-between text-[11px] text-neutral-400">
+                                                        <div className={`mt-2 flex items-center justify-between text-[11px] ${isDark ? 'text-gray-500' : 'text-neutral-400'}`}>
                                                             <span>{item.width}×{item.height}</span>
                                                             <span>{formatTime(item.createdAt)}</span>
                                                         </div>
@@ -560,6 +438,17 @@ export const RightPanel: React.FC<RightPanelProps> = ({
                                 )}
                             </div>
                         </div>
+                    )}
+
+                    {activeTab === 'agent' && (
+                        <AgentChatPanel
+                            theme={theme}
+                            compactMode={compactMode}
+                            textModel={textModel}
+                            getApiKeyForModel={getApiKeyForModel}
+                            onFinalPrompt={onAgentFinalPrompt || (() => {})}
+                            onGenerateImage={onAgentGenerateImage || (() => {})}
+                        />
                     )}
                 </div>
             </div>

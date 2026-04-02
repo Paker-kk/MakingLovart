@@ -60,6 +60,11 @@ export const DEFAULT_PROVIDER_MODELS: Partial<Record<AIProvider, ProviderModelMa
         image: ['midjourney-v6.1'],
         video: [],
     },
+    runningHub: {
+        text: [],
+        image: ['rhart-image-n-pro-official'],
+        video: [],
+    },
 };
 
 /**
@@ -123,6 +128,17 @@ export async function validateApiKey(provider: AIProvider, apiKey: string, baseU
         }
     }
 
+    // RunningHub: 32位 hex key 验证
+    if (provider === 'runningHub') {
+        try {
+            const { rhTestApiKey } = await import('./runningHubService');
+            const valid = await rhTestApiKey(apiKey);
+            return valid ? { ok: true } : { ok: false, message: 'API Key 无效' };
+        } catch (err) {
+            return { ok: false, message: err instanceof Error ? err.message : '网络错误' };
+        }
+    }
+
     // Stability / Banana / 其他: 简单格式校验
     if (apiKey.length < 10) return { ok: false, message: 'API Key 太短' };
     return { ok: true, message: '已保存（格式校验通过，未做在线验证）' };
@@ -140,6 +156,7 @@ const DEFAULT_BASE_URLS: Record<AIProvider, string> = {
     keling: 'https://api.klingai.com/v1',
     flux: 'https://api.bfl.ml/v1',
     midjourney: 'https://api.midjourney.com/v1',
+    runningHub: 'https://www.runninghub.cn/openapi/v2',
     custom: '',
 };
 
@@ -154,6 +171,7 @@ export function inferProviderFromKey(apiKey: string): AIProvider | null {
     if (/^sk-[a-f0-9]{32,}$/i.test(trimmed)) return 'deepseek';
     if (/^sa-/i.test(trimmed)) return 'stability';
     if (/^sk-sf/i.test(trimmed)) return 'siliconflow';
+    if (/^[a-f0-9]{32}$/i.test(trimmed)) return 'runningHub'; // 32-char hex
     return null;
 }
 
@@ -184,6 +202,7 @@ export const PROVIDER_LABELS: Record<AIProvider, string> = {
     keling: 'Keling 可灵',
     flux: 'Flux (BFL)',
     midjourney: 'Midjourney',
+    runningHub: 'RunningHub',
     custom: '自定义',
 };
 

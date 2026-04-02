@@ -172,7 +172,7 @@ export interface GenerationHistoryItem {
 
 // API Key & Model Preferences
 export type ThemeMode = 'light' | 'dark' | 'system';
-export type AIProvider = 'openai' | 'anthropic' | 'google' | 'stability' | 'qwen' | 'banana' | 'deepseek' | 'siliconflow' | 'keling' | 'flux' | 'midjourney' | 'custom';
+export type AIProvider = 'openai' | 'anthropic' | 'google' | 'stability' | 'qwen' | 'banana' | 'deepseek' | 'siliconflow' | 'keling' | 'flux' | 'midjourney' | 'runningHub' | 'custom';
 export type AICapability = 'text' | 'image' | 'video' | 'agent';
 
 /** 模型条目（用于结构化展示） */
@@ -211,6 +211,56 @@ export interface ModelPreference {
 
 // Agent / Workflow
 export type WorkspaceMode = 'whiteboard' | 'node';
+
+// Multi-Agent Chat System
+export type AgentRoleId = 'creative_director' | 'prompt_engineer' | 'style_master' | 'compositor' | 'quality_reviewer' | string;
+
+export interface AgentRole {
+    id: AgentRoleId;
+    name: string;
+    emoji: string;
+    color: string;
+    systemPrompt: string;
+    description: string;
+}
+
+export interface AgentConfig {
+    id: string;
+    roleId: AgentRoleId;
+    enabled: boolean;
+    provider?: AIProvider;
+    model?: string;
+}
+
+export interface AgentMessage {
+    id: string;
+    agentId: string;
+    agentName: string;
+    agentEmoji: string;
+    agentColor: string;
+    role: 'user' | 'agent' | 'system';
+    content: string;
+    timestamp: number;
+    isGenerating?: boolean;
+    imageUrl?: string;
+}
+
+export interface AgentBudget {
+    maxCost: number;
+    currentCost: number;
+    maxRounds: number;
+}
+
+export interface AgentSession {
+    id: string;
+    task: string;
+    agents: AgentConfig[];
+    messages: AgentMessage[];
+    status: 'idle' | 'discussing' | 'generating' | 'completed' | 'error' | 'stopped';
+    currentRound: number;
+    budget: AgentBudget;
+    finalPrompt?: string;
+}
 export type PromptEnhanceMode = 'smart' | 'style' | 'precise' | 'translate';
 
 export interface PromptEnhanceRequest {

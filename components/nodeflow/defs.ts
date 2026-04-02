@@ -39,6 +39,88 @@ export const NODE_DEFS: Record<NodeKind, NodeDefinition> = {
     inputs: [{ key: 'result', type: 'result', label: 'RESULT IN' }],
     outputs: [],
   },
+  // ──── New Agent / Workflow Nodes ────
+  llm: {
+    title: 'LLM 大语言模型',
+    width: 380,
+    height: 220,
+    inputs: [{ key: 'text', type: 'text', label: 'INPUT' }],
+    outputs: [{ key: 'text', type: 'text', label: 'OUTPUT' }],
+  },
+  imageGen: {
+    title: '图片生成 (AIGC)',
+    width: 360,
+    height: 200,
+    inputs: [
+      { key: 'text', type: 'text', label: 'PROMPT' },
+      { key: 'image', type: 'image', label: 'REF IMAGE' },
+    ],
+    outputs: [{ key: 'image', type: 'image', label: 'IMAGE' }],
+  },
+  videoGen: {
+    title: '视频生成',
+    width: 360,
+    height: 200,
+    inputs: [
+      { key: 'text', type: 'text', label: 'PROMPT' },
+      { key: 'image', type: 'image', label: 'FIRST FRAME' },
+    ],
+    outputs: [{ key: 'video', type: 'video', label: 'VIDEO' }],
+  },
+  runningHub: {
+    title: 'RunningHub',
+    width: 380,
+    height: 220,
+    inputs: [
+      { key: 'text', type: 'text', label: 'PROMPT' },
+      { key: 'image', type: 'image', label: 'IMAGE' },
+    ],
+    outputs: [{ key: 'result', type: 'result', label: 'RESULT' }],
+  },
+  httpRequest: {
+    title: 'HTTP / MCP 请求',
+    width: 380,
+    height: 220,
+    inputs: [{ key: 'input', type: 'any', label: 'INPUT' }],
+    outputs: [{ key: 'output', type: 'any', label: 'OUTPUT' }],
+  },
+  condition: {
+    title: '条件分支',
+    width: 300,
+    height: 160,
+    inputs: [{ key: 'input', type: 'any', label: 'INPUT' }],
+    outputs: [
+      { key: 'true', type: 'any', label: 'TRUE' },
+      { key: 'false', type: 'any', label: 'FALSE' },
+    ],
+  },
+  merge: {
+    title: '合并',
+    width: 280,
+    height: 140,
+    inputs: [
+      { key: 'a', type: 'any', label: 'A' },
+      { key: 'b', type: 'any', label: 'B' },
+    ],
+    outputs: [{ key: 'output', type: 'any', label: 'OUTPUT' }],
+  },
+  template: {
+    title: '文本模板',
+    width: 340,
+    height: 180,
+    inputs: [
+      { key: 'var1', type: 'text', label: 'VAR1' },
+      { key: 'var2', type: 'text', label: 'VAR2' },
+    ],
+    outputs: [{ key: 'text', type: 'text', label: 'TEXT' }],
+  },
+  saveToCanvas: {
+    title: '保存到画布',
+    width: 280,
+    height: 130,
+    inputs: [{ key: 'result', type: 'any', label: 'RESULT IN' }],
+    outputs: [],
+  },
 };
 
 export const INITIAL_NODES: WorkflowNode[] = [

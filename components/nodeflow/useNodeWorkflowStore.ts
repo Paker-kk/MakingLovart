@@ -605,6 +605,22 @@ export function useNodeWorkflowStore() {
     clearSelection();
   };
 
+  /** Replace the entire graph from a template or imported workflow */
+  const loadTemplate = (template: { nodes: WorkflowNode[]; edges: WorkflowEdge[]; groups?: WorkflowGroup[] }) => {
+    const newGraph: GraphState = {
+      nodes: template.nodes.map(n => ({ ...n })),
+      edges: template.edges.map(e => ({ ...e })),
+      groups: (template.groups ?? []).map(g => ({ ...g, nodeIds: [...g.nodeIds] })),
+      viewport: { x: -120, y: -80, scale: 0.86 },
+    };
+    historyPastRef.current = [...historyPastRef.current, cloneGraph(graph)].slice(-HISTORY_LIMIT);
+    historyFutureRef.current = [];
+    setGraph(newGraph);
+    persistGraph(newGraph);
+    touchMeta();
+    clearSelection();
+  };
+
   return {
     nodes: graph.nodes,
     edges: graph.edges,
@@ -654,6 +670,7 @@ export function useNodeWorkflowStore() {
     distributeSelectedNodes,
     undo,
     redo,
+    loadTemplate,
   };
 }
 

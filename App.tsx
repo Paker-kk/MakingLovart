@@ -27,6 +27,7 @@ import { DEFAULT_PROVIDER_MODELS, enhancePromptWithProvider, generateImageWithPr
 import { fileToDataUrl } from './utils/fileUtils';
 import { translations } from './translations';
 import { saveKeysEncrypted, loadKeysDecrypted, clearAllKeyData, migrateLegacyKeys } from './utils/keyVault';
+import { recordApiUsage, getUsageSummary, formatCost, type KeyUsageSummary } from './utils/usageMonitor';
 import { getCompactChromeMetrics } from './utils/uiScale';
 
 const generateId = () => `id_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -672,6 +673,12 @@ const App: React.FC = () => {
         };
     }, [modelPreference.imageModel, modelPreference.textModel, modelPreference.videoModel, userApiKeys]);
 
+    // Usage monitoring summary (recomputed when settings panel opens or keys change)
+    const usageSummaryMap = useMemo(() => {
+        if (!isSettingsPanelOpen || userApiKeys.length === 0) return undefined;
+        return getUsageSummary(userApiKeys.map(k => k.id));
+    }, [isSettingsPanelOpen, userApiKeys]);
+
     // 持久化 autoEnhance 开关
     useEffect(() => {
         localStorage.setItem('autoEnhance.v1', isAutoEnhanceEnabled.toString());
@@ -977,7 +984,22 @@ const App: React.FC = () => {
         };
 
         setGenerationHistory(prev => addGenerationHistoryItem(prev, item));
-    }, []);
+
+        // Record successful API usage
+        const genType = payload.mediaType ?? 'image';
+        const activeModel = genType === 'video' ? modelPreference.videoModel : modelPreference.imageModel;
+        const provider = inferProviderFromModel(activeModel);
+        const usageKey = userApiKeys.find(k => k.provider === provider);
+        if (usageKey) {
+            recordApiUsage({
+                keyId: usageKey.id,
+                provider: usageKey.provider,
+                model: activeModel,
+                type: genType,
+                success: true,
+            });
+        }
+    }, [modelPreference, userApiKeys]);
 
     const addChatAttachment = useCallback((payload: Omit<ChatAttachment, 'id'>) => {
         setChatAttachments(prev => {
@@ -2442,7 +2464,7 @@ const App: React.FC = () => {
         }
     };
 
-    const handleGenerate = async (promptOverride?: string, source: 'prompt' | 'right' = 'prompt') => {
+    const handleGenerate = async (promptOverride?: string, source: 'prompt' | 'right' | 'agent' = 'prompt') => {
         let rawPrompt = (promptOverride ?? prompt).trim();
         if (!rawPrompt) {
             setError('请输入提示词。');
@@ -2953,6 +2975,19 @@ const App: React.FC = () => {
 
             setError(friendlyMessage); 
             console.error("Generation failed:", error);
+
+            // Record failed API usage
+            const usageKey = userApiKeys.find(k => k.provider === (generationMode === 'video' ? videoProvider : imageProvider));
+            if (usageKey) {
+                recordApiUsage({
+                    keyId: usageKey.id,
+                    provider: usageKey.provider,
+                    model: generationMode === 'video' ? modelPreference.videoModel : modelPreference.imageModel,
+                    type: generationMode === 'video' ? 'video' : 'image',
+                    success: false,
+                    error: error.message,
+                });
+            }
         } finally { 
             setIsLoading(false); 
         }
@@ -3151,22 +3186,6 @@ const App: React.FC = () => {
             e.id === maskEditingId && e.type === 'image' ? { ...e, mask: dataUrl } : e
         ));
     }, [maskEditingId, maskBrushSize, maskBrushMode, elements, setElements]);
-
-    const handleRunNodeWorkflow = async (opts: { autoEnhance: boolean; enhanceMode: PromptEnhanceMode; stylePreset?: string }) => {
-        let finalPrompt = prompt;
-        if (opts.autoEnhance && prompt.trim()) {
-            const enhanced = await handleEnhancePrompt({
-                prompt,
-                mode: opts.enhanceMode,
-                stylePreset: opts.stylePreset,
-            });
-            if (enhanced.enhancedPrompt?.trim()) {
-                finalPrompt = enhanced.enhancedPrompt.trim();
-                setPrompt(finalPrompt);
-            }
-        }
-        await handleGenerate(finalPrompt);
-    };
 
     const handleCanvasImageDragStart = useCallback((image: ImageElement, e: React.DragEvent<SVGGElement>) => {
         const payload = {
@@ -3578,16 +3597,20 @@ const App: React.FC = () => {
                 compactMode={chromeMetrics.isTablet}
                 library={assetLibrary}
                 generationHistory={generationHistory}
-                attachments={chatAttachments}
                 onRemove={(cat, id) => setAssetLibrary(prev => removeAsset(prev, cat, id))}
                 onRename={(cat, id, name) => setAssetLibrary(prev => renameAsset(prev, cat, id, name))}
-                onGenerate={(nextPrompt) => {
-                    setPrompt(nextPrompt);
-                    handleGenerate(nextPrompt, 'right');
-                }}
-                onAddAttachments={handleAddAttachmentFiles}
-                onRemoveAttachment={handleRemoveChatAttachment}
                 onWidthChange={setRightPanelWidth}
+                textModel={modelPreference.textModel}
+                getApiKeyForModel={(model: string) => {
+                    const provider = inferProviderFromModel(model);
+                    return getPreferredApiKey('text', provider);
+                }}
+                onAgentFinalPrompt={(finalPrompt: string) => {
+                    setPrompt(finalPrompt);
+                }}
+                onAgentGenerateImage={(finalPrompt: string) => {
+                    handleGenerate(finalPrompt, 'agent');
+                }}
             />
             <CanvasSettings 
                 isOpen={isSettingsPanelOpen} 
@@ -3609,6 +3632,7 @@ const App: React.FC = () => {
                 t={t}
                 clearKeysOnExit={clearKeysOnExit}
                 setClearKeysOnExit={setClearKeysOnExit}
+                usageSummary={usageSummaryMap}
             />
             {/* ============ 图层蒙版编辑浮动面板 ============ */}
 
@@ -3920,11 +3944,11 @@ const App: React.FC = () => {
                                                 </filter>
                                             </defs>
                                         )}
-                                        {/* Non-destructive layer mask */}
+                                        {/* Non-destructive layer mask — coordinates in element-local space (0,0) to match transform-based positioning */}
                                         {maskId && (
                                             <defs>
-                                                <mask id={maskId} maskUnits="userSpaceOnUse" x={el.x} y={el.y} width={el.width} height={el.height}>
-                                                    <image href={el.mask} x={el.x} y={el.y} width={el.width} height={el.height} />
+                                                <mask id={maskId} maskUnits="userSpaceOnUse" x={0} y={0} width={el.width} height={el.height}>
+                                                    <image href={el.mask} x={0} y={0} width={el.width} height={el.height} />
                                                 </mask>
                                             </defs>
                                         )}

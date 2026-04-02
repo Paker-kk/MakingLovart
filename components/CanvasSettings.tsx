@@ -1,6 +1,7 @@
 import React from 'react';
 import type { WheelAction, UserApiKey, ModelPreference, AIProvider, AICapability, ThemeMode, ModelItem } from '../types';
 import { DEFAULT_PROVIDER_MODELS, validateApiKey, inferProviderFromKey, inferCapabilitiesByProvider, PROVIDER_LABELS } from '../services/aiGateway';
+import { formatCost, type KeyUsageSummary } from '../utils/usageMonitor';
 
 interface CanvasSettingsProps {
     isOpen: boolean;
@@ -22,6 +23,8 @@ interface CanvasSettingsProps {
     t: (key: string) => string;
     clearKeysOnExit: boolean;
     setClearKeysOnExit: (v: boolean) => void;
+    /** Per-key usage summary (optional) */
+    usageSummary?: Map<string, KeyUsageSummary>;
 }
 
 const providerBaseUrl: Record<AIProvider, string> = {
@@ -71,6 +74,7 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
     setModelPreference,
     clearKeysOnExit,
     setClearKeysOnExit,
+    usageSummary,
 }) => {
     const [provider, setProvider] = React.useState<AIProvider>('google');
     const [apiKey, setApiKey] = React.useState('');
@@ -587,6 +591,19 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
                                                     </span>
                                                 ))}
                                             </div>
+                                            {/* Usage stats */}
+                                            {usageSummary?.get(item.id) && (() => {
+                                                const u = usageSummary.get(item.id)!;
+                                                if (u.totalCalls === 0) return null;
+                                                return (
+                                                    <div className={`mt-1.5 flex gap-3 text-[10px] ${isDark ? 'text-[#667085]' : 'text-[#98A2B3]'}`}>
+                                                        <span>调用 {u.totalCalls} 次</span>
+                                                        {u.errorCalls > 0 && <span className="text-red-400">失败 {u.errorCalls}</span>}
+                                                        <span>≈ {formatCost(u.totalCostCents)}</span>
+                                                        <span>24h: {u.last24h}</span>
+                                                    </div>
+                                                );
+                                            })()}
                                         </div>
                                         <div className="ml-3 flex items-center gap-2">
                                             {!item.isDefault ? (
