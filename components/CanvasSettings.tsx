@@ -34,7 +34,6 @@ const providerBaseUrl: Record<AIProvider, string> = {
     openai: 'https://api.openai.com/v1',
     anthropic: 'https://api.anthropic.com/v1',
     google: 'https://generativelanguage.googleapis.com/v1beta/models',
-    stability: 'https://api.stability.ai/v1',
     qwen: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
     banana: 'https://api.banana.dev/v1/vision',
     deepseek: 'https://api.deepseek.com/v1',
@@ -122,8 +121,6 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
         image: ensureModelOption(
             dynamicModelOptions?.image?.length ? dynamicModelOptions.image : [
                 ...(DEFAULT_PROVIDER_MODELS.google?.image || []),
-                ...(DEFAULT_PROVIDER_MODELS.openai?.image || []),
-                ...(DEFAULT_PROVIDER_MODELS.stability?.image || []),
             ],
             modelPreference.imageModel
         ),
@@ -341,7 +338,7 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `makinglovart-api-configs-${new Date().toISOString().slice(0, 10)}.json`;
+        a.download = `flovart-api-configs-${new Date().toISOString().slice(0, 10)}.json`;
         a.click();
         URL.revokeObjectURL(url);
     };
@@ -399,7 +396,7 @@ export const CanvasSettings: React.FC<CanvasSettingsProps> = ({
         const url = URL.createObjectURL(blob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = `makinglovart-api-configs-full-${new Date().toISOString().slice(0, 10)}.json`;
+        a.download = `flovart-api-configs-full-${new Date().toISOString().slice(0, 10)}.json`;
         a.click();
         URL.revokeObjectURL(url);
     };

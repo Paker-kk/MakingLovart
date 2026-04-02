@@ -1,4 +1,4 @@
-# MakingLovart - Tauri 全平台桌面应用构建
+# Flovart - Tauri 全平台桌面应用构建
 # 
 # 触发条件：推送 v* 格式的 tag 时自动构建并发布 Release
 # 构建目标：Windows (x64) / macOS (x64 + ARM64) / Linux (x64)
@@ -49,11 +49,8 @@ jobs:
       # 安装 Rust 工具链
       - name: Install Rust stable
         uses: dtolnay/rust-toolchain@stable
-
-      # macOS ARM64 交叉编译需要额外 target
-      - name: Add Rust target (macOS ARM64)
-        if: matrix.args == '--target aarch64-apple-darwin'
-        run: rustup target add aarch64-apple-darwin
+        with:
+          targets: ${{ matrix.platform == 'macos-latest' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
 
       # 安装 Node.js 和前端依赖
       - name: Setup Node.js
@@ -67,14 +64,14 @@ jobs:
 
       # 构建 Tauri 应用并生成安装包
       - name: Build Tauri app
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ github.ref_name }}
-          releaseName: 'MakingLovart v__VERSION__'
+          releaseName: 'Flovart v__VERSION__'
           releaseBody: |
             See the assets below to download and install this version.
             

@@ -54,7 +54,7 @@ type DragState =
       origin: Record<string, XYPosition>;
     };
 
-const STORAGE_KEY = 'makinglovart.nodeflow.v1';
+const STORAGE_KEY = 'flovart.nodeflow.v1';
 const HISTORY_LIMIT = 80;
 const PASTE_OFFSET = 48;
 

@@ -169,12 +169,12 @@ document.addEventListener('DOMContentLoaded', () => {
   function getDefaultCapabilities(provider) {
     const caps = {
       google: ['text', 'image', 'video'],
-      openai: ['text', 'image'],
+      openai: ['text'],
       deepseek: ['text'],
       anthropic: ['text'],
       minimax: ['text', 'image', 'video'],
       volcengine: ['text'],
-      qwen: ['text', 'image'],
+      qwen: ['text'],
     };
     return caps[provider] || ['text'];
   }

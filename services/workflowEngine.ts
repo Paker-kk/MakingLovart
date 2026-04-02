@@ -113,7 +113,7 @@ async function executeLLM(
 
   const systemPrompt = node.config?.systemPrompt || 'You are a helpful assistant.';
   const inputText = inputs.text || inputs.input || '';
-  const model = node.config?.model || 'gemini-2.5-flash';
+  const model = node.config?.model || 'gemini-3-flash-preview';
   const temperature = node.config?.temperature ?? 0.7;
   const maxTokens = node.config?.maxTokens ?? 4096;
 
@@ -123,7 +123,7 @@ async function executeLLM(
   if (key.provider === 'google') {
     // Use Gemini native format
     const { enhancePromptWithGemini, setGeminiRuntimeConfig } = await import('../services/geminiService');
-    setGeminiRuntimeConfig({ apiKey: key.key });
+    setGeminiRuntimeConfig({ textApiKey: key.key, imageApiKey: key.key, videoApiKey: key.key });
     const result = await enhancePromptWithGemini(inputText, systemPrompt, key.key);
     return { text: result || inputText };
   }
@@ -177,7 +177,7 @@ async function executeImageGen(
 
   if (provider === 'google' || key.provider === 'google') {
     const { generateImageFromText, editImage, setGeminiRuntimeConfig } = await import('../services/geminiService');
-    setGeminiRuntimeConfig({ apiKey: key.key });
+    setGeminiRuntimeConfig({ textApiKey: key.key, imageApiKey: key.key, videoApiKey: key.key });
 
     if (refImage) {
       // img2img via editImage
@@ -240,7 +240,7 @@ async function executeVideoGen(
 
   if (key.provider === 'google') {
     const { generateVideo, setGeminiRuntimeConfig } = await import('../services/geminiService');
-    setGeminiRuntimeConfig({ apiKey: key.key });
+    setGeminiRuntimeConfig({ textApiKey: key.key, imageApiKey: key.key, videoApiKey: key.key });
     const result = await generateVideo(
       prompt,
       firstFrame ? { href: firstFrame, mimeType: 'image/png' } : undefined,

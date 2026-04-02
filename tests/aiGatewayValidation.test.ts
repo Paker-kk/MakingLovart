@@ -1,6 +1,6 @@
 /**
  * aiGateway 验证测试 — 测试 validateApiKey 对各 provider 的验证逻辑
- * 包括 Google (models.list)、OpenAI (/models)、Anthropic (/messages)、Stability (格式校验)
+ * 包括 Google (models.list)、OpenAI (/models)、Anthropic (/messages) 等格式校验
  * 以及 generateImageWithProvider 对不支持 provider 的报错行为
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
@@ -38,8 +38,8 @@ describe('aiGateway - validateApiKey', () => {
         );
     });
 
-    it('Stability 短 key 格式校验失败', async () => {
-        const result = await validateApiKey('stability', 'short');
+    it('短 key 格式校验失败（通用）', async () => {
+        const result = await validateApiKey('banana' as any, 'short');
         expect(result.ok).toBe(false);
         expect(result.message).toContain('太短');
     });

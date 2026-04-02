@@ -18,8 +18,8 @@ import type {
 
 describe('types.ts - 类型完整性验证', () => {
     it('AIProvider 包含所有预期值', () => {
-        const providers: AIProvider[] = ['openai', 'anthropic', 'google', 'stability', 'qwen', 'banana', 'custom'];
-        expect(providers).toHaveLength(7);
+        const providers: AIProvider[] = ['openai', 'anthropic', 'google', 'qwen', 'banana', 'custom'];
+        expect(providers).toHaveLength(6);
     });
 
     it('GenerationMode 包含 image / video / keyframe', () => {

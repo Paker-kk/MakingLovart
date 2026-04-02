@@ -7,6 +7,7 @@
 import React, { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { Toolbar } from './components/Toolbar';
 import { PromptBar } from './components/PromptBar';
+import { DiagnosticBar } from './components/DiagnosticBar';
 import { Loader } from './components/Loader';
 import { CanvasSettings } from './components/CanvasSettings';
 import { OnboardingWizard } from './components/OnboardingWizard';
@@ -369,9 +370,9 @@ const createNewBoard = (name: string): Board => {
 };
 
 const DEFAULT_MODEL_PREFS: ModelPreference = {
-    textModel: 'gemini-2.5-pro',
-    imageModel: 'gemini-2.5-flash-image',
-    videoModel: 'veo-2.0-generate-001',
+    textModel: 'gemini-3-flash-preview',
+    imageModel: 'gemini-3.1-flash-image-preview',
+    videoModel: 'veo-3.1-generate-preview',
     agentModel: 'banana-vision-v1',
 };
 
@@ -777,6 +778,38 @@ const App: React.FC = () => {
         const safeKeys = userApiKeys.map(k => ({ provider: k.provider, key: k.key, baseUrl: k.baseUrl, models: k.models, capabilities: k.capabilities }));
         chrome.storage.local.set({ flovart_user_api_keys: safeKeys });
     }, [userApiKeys, apiKeysLoaded]);
+
+    // Chrome Extension bridge: listen for keys added from extension popup → merge into app
+    useEffect(() => {
+        if (typeof chrome === 'undefined' || !chrome?.storage?.onChanged) return;
+        const handleStorageChange = (changes: Record<string, { oldValue?: unknown; newValue?: unknown }>, areaName: string) => {
+            if (areaName !== 'local' || !changes.flovart_user_api_keys) return;
+            const extKeys = changes.flovart_user_api_keys.newValue as Array<{ provider: AIProvider; key: string; baseUrl?: string; models?: unknown[]; capabilities?: AICapability[] }> | undefined;
+            if (!Array.isArray(extKeys)) return;
+            setUserApiKeys(prev => {
+                // Merge: add any keys from extension that don't already exist in app
+                const existingFingerprints = new Set(prev.map(k => `${k.provider}::${k.key}`));
+                const newKeys: UserApiKey[] = [];
+                for (const ek of extKeys) {
+                    if (!ek.provider || !ek.key) continue;
+                    const fp = `${ek.provider}::${ek.key}`;
+                    if (existingFingerprints.has(fp)) continue;
+                    newKeys.push(normalizeApiKeyEntry({
+                        id: crypto.randomUUID(),
+                        provider: ek.provider,
+                        key: ek.key,
+                        baseUrl: ek.baseUrl,
+                        capabilities: ek.capabilities,
+                        createdAt: Date.now(),
+                        updatedAt: Date.now(),
+                    }) as UserApiKey);
+                }
+                return newKeys.length > 0 ? [...prev, ...newKeys.filter(Boolean)] : prev;
+            });
+        };
+        chrome.storage.onChanged.addListener(handleStorageChange);
+        return () => chrome.storage.onChanged.removeListener(handleStorageChange);
+    }, []);
 
     useEffect(() => {
         localStorage.setItem('modelPreference.v1', JSON.stringify(modelPreference));
@@ -4477,13 +4510,21 @@ const App: React.FC = () => {
             </div>
             {!croppingState && (
                 <div 
-                    className="compact-prompt-dock absolute bottom-0 left-0 right-0 z-[40] transition-all duration-300 ease-out flex justify-center pointer-events-none"
+                    className="compact-prompt-dock absolute bottom-0 left-0 right-0 z-[40] transition-all duration-300 ease-out flex flex-col items-center pointer-events-none"
                     style={{
                         paddingLeft: chromeMetrics.isTablet ? `${chromeMetrics.promptSideInset}px` : `${isLayerMinimized ? chromeMetrics.outerGap : chromeMetrics.sidebarWidth + chromeMetrics.outerGap + 8}px`,
                         paddingRight: chromeMetrics.isTablet ? `${chromeMetrics.promptSideInset}px` : `${rightPanelWidth + chromeMetrics.promptSideInset}px`,
                         paddingBottom: `${chromeMetrics.promptDockBottom}px`
                     }}
                 >
+                    {/* 自省诊断条 — 显示 API Key 能力覆盖状态 */}
+                    <div className="pointer-events-auto mb-1.5">
+                        <DiagnosticBar
+                            userApiKeys={userApiKeys}
+                            theme={resolvedTheme}
+                            onOpenSettings={() => setIsSettingsPanelOpen(true)}
+                        />
+                    </div>
                     <div className="compact-prompt-dock__inner pointer-events-auto w-full transition-transform hover:-translate-y-0.5 duration-300 drop-shadow-xl" style={{ maxWidth: `${chromeMetrics.promptMaxWidth}px` }}>
                         <PromptBar 
                             t={t}

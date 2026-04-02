@@ -5,28 +5,23 @@ type ProviderModelMap = { text: string[]; image: string[]; video: string[]; agen
 
 export const DEFAULT_PROVIDER_MODELS: Partial<Record<AIProvider, ProviderModelMap>> = {
     google: {
-        text: ['gemini-2.5-pro', 'gemini-2.5-flash'],
-        image: ['gemini-2.5-flash-image', 'imagen-4.0-generate-001'],
-        video: ['veo-2.0-generate-001'],
+        text: ['gemini-3-flash-preview', 'gemini-3.1-pro-preview', 'gemini-3.1-flash-lite-preview', 'gemini-2.5-pro', 'gemini-2.5-flash'],
+        image: ['gemini-3.1-flash-image-preview', 'gemini-3-pro-image-preview', 'gemini-2.5-flash-image', 'imagen-4.0-generate-001'],
+        video: ['veo-3.1-generate-preview', 'veo-3.1-lite-generate-preview', 'veo-2.0-generate-001'],
     },
     openai: {
-        text: ['gpt-4o-mini'],
-        image: ['dall-e-3'],
+        text: ['gpt-5.4', 'gpt-5.4-mini', 'gpt-5.4-nano', 'gpt-4o-mini'],
+        image: [],
         video: [],
     },
     anthropic: {
-        text: ['claude-3-5-sonnet'],
+        text: ['claude-opus-4-6', 'claude-sonnet-4-6', 'claude-haiku-4-5'],
         image: [],
         video: [],
     },
     qwen: {
         text: ['qwen-max'],
         image: [],
-        video: [],
-    },
-    stability: {
-        text: [],
-        image: ['sdxl'],
         video: [],
     },
     banana: {
@@ -149,7 +144,7 @@ export async function validateApiKey(provider: AIProvider, apiKey: string, baseU
         }
     }
 
-    // Stability / Banana / 其他: 简单格式校验
+    // Banana / 其他: 简单格式校验
     if (apiKey.length < 10) return { ok: false, message: 'API Key 太短' };
     return { ok: true, message: '已保存（格式校验通过，未做在线验证）' };
 }
@@ -158,7 +153,6 @@ const DEFAULT_BASE_URLS: Record<AIProvider, string> = {
     openai: 'https://api.openai.com/v1',
     anthropic: 'https://api.anthropic.com/v1',
     google: 'https://generativelanguage.googleapis.com/v1beta/models',
-    stability: 'https://api.stability.ai/v1',
     qwen: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
     banana: 'https://api.banana.dev/v1/vision',
     deepseek: 'https://api.deepseek.com/v1',
@@ -181,7 +175,7 @@ export function inferProviderFromKey(apiKey: string): AIProvider | null {
     if (/^sk-ant-/i.test(trimmed)) return 'anthropic';
     if (/^sk-proj-/i.test(trimmed) || /^sk-[a-zA-Z0-9]{20,}$/.test(trimmed)) return 'openai';
     if (/^sk-[a-f0-9]{32,}$/i.test(trimmed)) return 'deepseek';
-    if (/^sa-/i.test(trimmed)) return 'stability';
+    // Stability AI removed — sa- prefix keys no longer auto-detected
     if (/^sk-sf/i.test(trimmed)) return 'siliconflow';
     if (/^eyJ/i.test(trimmed)) return 'minimax'; // MiniMax keys start with eyJ (JWT-like)
     if (/^[a-f0-9]{32}$/i.test(trimmed)) return 'runningHub'; // 32-char hex
@@ -207,7 +201,6 @@ export const PROVIDER_LABELS: Record<AIProvider, string> = {
     google: 'Google Gemini',
     openai: 'OpenAI',
     anthropic: 'Anthropic Claude',
-    stability: 'Stability AI',
     qwen: 'Qwen 通义千问',
     banana: 'Banana',
     deepseek: 'DeepSeek 深度求索',
@@ -241,7 +234,7 @@ export function inferCapabilityFromModel(model: string): AICapability | undefine
     if (!normalized) return undefined;
     if (/^veo([-.\d]|$)/.test(normalized)) return 'video';
     if (/^banana/.test(normalized)) return 'agent';
-    if (/^(imagen|dall-e|gpt-image|sdxl|stable-diffusion)/.test(normalized)) return 'image';
+    if (/^(imagen|dall-e|gpt-image)/.test(normalized)) return 'image';
     if (/^gemini/.test(normalized)) return normalized.includes('image') ? 'image' : 'text';
     if (/^(gpt|o\d|claude|qwen)/.test(normalized)) return 'text';
     return undefined;
@@ -302,10 +295,9 @@ function safeParsePromptResult(raw: string, fallbackPrompt: string): PromptEnhan
 export function inferProviderFromModel(model: string): AIProvider {
     const normalized = normalizeModelName(model);
     if (/^(gemini|imagen|veo)/.test(normalized)) return 'google';
-    if (/^(dall-e|gpt-image|gpt-4o|gpt-4\.1|o\d)/.test(normalized)) return 'openai';
+    if (/^(dall-e|gpt-image|gpt-5|gpt-4o|gpt-4\.1|o\d)/.test(normalized)) return 'openai';
     if (/^claude/i.test(model)) return 'anthropic';
     if (/^qwen/i.test(model)) return 'qwen';
-    if (/^(sdxl|stable-diffusion)/i.test(model)) return 'stability';
     if (/^banana/i.test(model)) return 'banana';
     if (/^deepseek/i.test(model)) return 'deepseek';
     if (/^(siliconflow|deepseek-ai|Qwen)/i.test(model)) return 'siliconflow';
@@ -417,9 +409,8 @@ export async function enhancePromptWithProvider(
 /**
  * 【函数】统一的图片生成入口
  *
- * 根据模型名称路由到 Google Imagen / OpenAI DALL-E / Stability SDXL 等。
- * 当前支持：google、openai、stability、custom。
- * Anthropic / Qwen / Banana 暂不支持图片生成，会抛出错误。
+ * 根据模型名称路由到 Google Imagen / OpenAI DALL-E 等。
+ * 当前支持：google、openai、custom。
  *
  * @param prompt - 图片描述提示词
  * @param model  - 模型名称
@@ -467,39 +458,46 @@ export async function generateImageWithProvider(
         };
     }
 
-    if (provider === 'stability') {
-        const apiKey = requireApiKey('stability', key);
-        const baseUrl = getBaseUrl('stability', key);
-        const response = await fetch(`${baseUrl}/generation/stable-diffusion-xl-1024-v1-0/text-to-image`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                Accept: 'application/json',
-                Authorization: `Bearer ${apiKey}`,
-            },
-            body: JSON.stringify({
-                text_prompts: [{ text: prompt }],
-                cfg_scale: 7,
-                clip_guidance_preset: 'FAST_BLUE',
-                height: 1024,
-                width: 1024,
-                samples: 1,
-                steps: 30,
-            }),
-        });
+    throw new Error(`当前暂不支持使用 ${provider} 进行图片生成。`);
+}
 
-        if (!response.ok) {
-            const text = await response.text().catch(() => '');
-            throw new Error(`Stability 图片生成失败 (${response.status}): ${text || response.statusText}`);
-        }
+/**
+ * 自省诊断 — 根据用户已配置的 API Key 集合，检查各能力覆盖情况并返回警告
+ *
+ * @param keys - 用户当前所有 API Key（来自 App.tsx state: userApiKeys）
+ * @returns covered: 已覆盖能力列表，missing: 缺失的能力，warnings: 具体提示信息
+ */
+export function diagnoseKeyCapabilities(keys: UserApiKey[]): {
+    covered: AICapability[];
+    missing: AICapability[];
+    warnings: string[];
+} {
+    const ALL_CAPS: AICapability[] = ['text', 'image', 'video', 'agent'];
+    const coveredSet = new Set<AICapability>();
+    const warnings: string[] = [];
 
-        const json = await response.json();
-        return {
-            newImageBase64: json?.artifacts?.[0]?.base64 || null,
-            newImageMimeType: 'image/png',
-            textResponse: null,
-        };
+    for (const key of keys) {
+        const caps = key.capabilities?.length ? key.capabilities : inferCapabilitiesByProvider(key.provider);
+        for (const c of caps) coveredSet.add(c);
     }
 
-    throw new Error(`当前暂不支持使用 ${provider} 进行图片生成。`);
+    const covered = ALL_CAPS.filter(c => coveredSet.has(c));
+    const missing = ALL_CAPS.filter(c => !coveredSet.has(c));
+
+    if (missing.includes('text')) warnings.push('未配置文本模型 API Key — 提示词润色、AI 对话功能不可用');
+    if (missing.includes('image')) warnings.push('未配置图片模型 API Key — AI 绘图、图片编辑功能不可用');
+    if (missing.includes('video')) warnings.push('未配置视频模型 API Key — AI 视频生成功能不可用');
+    if (missing.includes('agent')) warnings.push('未配置 Agent API Key — 智能代理功能不可用');
+
+    // 检查是否有 Google key (核心能力依赖)
+    const hasGoogle = keys.some(k => k.provider === 'google' && k.key);
+    if (!hasGoogle && keys.length > 0) {
+        warnings.push('建议配置 Google API Key — Gemini 3 / Imagen 4 / Veo 3.1 是当前最强图像和视频模型');
+    }
+
+    if (keys.length === 0) {
+        warnings.push('尚未配置任何 API Key — 所有 AI 功能不可用，请先在设置中添加');
+    }
+
+    return { covered, missing, warnings };
 }

@@ -12,9 +12,10 @@
  * 3. generateVideo: 图片生成视频（基于 Veo 2.0）
  * 
  * 【使用的 AI 模型】
- * - gemini-2.5-flash-image: 图像编辑和生成
+ * - gemini-3-flash-preview: 文本理解与提示词润色
+ * - gemini-3.1-flash-image-preview: 图像编辑和生成
  * - imagen-4.0-generate-001: 文本直接生成图像
- * - veo-2.0-generate-001: 视频生成
+ * - veo-3.1-generate-preview: 视频生成
  * 
  * 【API Key 配置】
  * 从环境变量 process.env.API_KEY 读取 Gemini API Key
@@ -166,7 +167,7 @@ export async function enhancePromptWithGemini(request: PromptEnhanceRequest, api
 
   try {
     const ai = getClient("text", apiKey);
-    const model = runtimeConfig.textModel || "gemini-2.5-pro";
+    const model = runtimeConfig.textModel || "gemini-3-flash-preview";
     const response: GenerateContentResponse = await ai.models.generateContent({
       model,
       contents: {
@@ -270,7 +271,7 @@ export async function editImage(
     const ai = getClient("image", apiKey);
     // 步骤5：调用 Gemini API
     const response: GenerateContentResponse = await ai.models.generateContent({
-      model: runtimeConfig.imageModel || 'gemini-2.5-flash-image',  // 使用 Gemini 2.5 Flash 图像模型
+      model: runtimeConfig.imageModel || 'gemini-3.1-flash-image-preview',  // 使用 Gemini 3.1 Flash 图像模型
       contents: {
         parts: parts,  // 传入组装好的内容
       },
@@ -407,7 +408,7 @@ export async function generateImageFromText(prompt: string, apiKey?: string): Pr
 /**
  * 【函数】生成视频 / AI 视频生成
  * 
- * 使用 Veo 2.0 模型从图片生成视频，支持纯文本或图片+文本模式
+ * 使用 Veo 3.1 模型从图片生成视频，支持纯文本或图片+文本模式
  * 
  * @param {string} prompt - 视频描述提示词
  * @param {'16:9' | '9:16'} aspectRatio - 视频宽高比
@@ -454,7 +455,7 @@ export async function generateVideo(
 
   // 步骤3：提交视频生成请求
   let operation: GenerateVideosOperation = await ai.models.generateVideos({
-    model: runtimeConfig.videoModel || 'veo-2.0-generate-001',  // 使用 Veo 2.0 模型
+    model: runtimeConfig.videoModel || 'veo-3.1-generate-preview',  // 使用 Veo 3.1 模型
     prompt: prompt,
     image: imagePart,
     config: {
@@ -493,9 +494,12 @@ export async function generateVideo(
     throw new Error("Video generation completed, but no download link was found.");
   }
 
-  // 步骤8：下载视频文件
+  // 步骤8：下载视频文件（使用 Authorization header 防止 API Key 泄露到 URL）
   onProgress('Downloading generated video...');
-  const response = await fetch(`${downloadLink}&key=${getApiKey("video", apiKey)}`);
+  const videoApiKey = getApiKey("video", apiKey);
+  const response = await fetch(downloadLink, {
+    headers: { 'x-goog-api-key': videoApiKey },
+  });
   if (!response.ok) {
     throw new Error(`Failed to download video: ${response.statusText}`);
   }

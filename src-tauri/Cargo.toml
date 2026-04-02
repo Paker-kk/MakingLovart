@@ -1,12 +1,12 @@
 [package]
-name = "making-lovart"
+name = "flovart"
 version = "0.1.0"
-description = "MakingLovart - AI-powered creative workspace"
-authors = ["MakingLovart"]
+description = "Flovart - AI-powered creative workspace"
+authors = ["Flovart"]
 edition = "2021"
 
 [lib]
-name = "making_lovart_lib"
+name = "flovart_lib"
 crate-type = ["lib", "cdylib", "staticlib"]
 
 [build-dependencies]

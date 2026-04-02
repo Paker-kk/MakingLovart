@@ -1,32 +1,39 @@
 /**
  * aiGateway 单元测试 — 验证 inferProviderFromModel 模型名称→Provider 推断逻辑
- * 覆盖所有 7 个 provider：google, openai, anthropic, stability, qwen, banana, custom
+ * 覆盖 providers：google, openai, anthropic, qwen, banana, deepseek, custom
+ * 2026 模型名更新：Gemini 3, GPT-5.4, Claude Opus 4.6, Veo 3.1
  */
 import { describe, it, expect } from 'vitest';
-import { inferCapabilityFromModel, inferProviderFromModel, isGoogleImageEditModel, isGoogleTextToImageModel } from '../services/aiGateway';
+import { inferCapabilityFromModel, inferProviderFromModel, isGoogleImageEditModel, isGoogleTextToImageModel, diagnoseKeyCapabilities } from '../services/aiGateway';
+import type { UserApiKey } from '../types';
 
 describe('inferProviderFromModel', () => {
-    it('识别 Google 模型', () => {
+    it('识别 Google 模型（含 Gemini 3 / Veo 3.1）', () => {
         expect(inferProviderFromModel('gemini-2.5-pro')).toBe('google');
+        expect(inferProviderFromModel('gemini-3-flash-preview')).toBe('google');
+        expect(inferProviderFromModel('gemini-3.1-pro-preview')).toBe('google');
+        expect(inferProviderFromModel('gemini-3.1-flash-lite-preview')).toBe('google');
         expect(inferProviderFromModel('imagen-4.0-generate-001')).toBe('google');
         expect(inferProviderFromModel('veo-2.0-generate-001')).toBe('google');
-        expect(inferProviderFromModel('veo-3.1-fast-generate-preview')).toBe('google');
+        expect(inferProviderFromModel('veo-3.1-generate-preview')).toBe('google');
+        expect(inferProviderFromModel('veo-3.1-lite-generate-preview')).toBe('google');
     });
 
-    it('识别 OpenAI 模型', () => {
+    it('识别 OpenAI 模型（含 GPT-5.4）', () => {
         expect(inferProviderFromModel('dall-e-3')).toBe('openai');
         expect(inferProviderFromModel('gpt-image-1')).toBe('openai');
         expect(inferProviderFromModel('gpt-4o')).toBe('openai');
+        expect(inferProviderFromModel('gpt-5.4')).toBe('openai');
+        expect(inferProviderFromModel('gpt-5.4-mini')).toBe('openai');
+        expect(inferProviderFromModel('gpt-5.4-nano')).toBe('openai');
     });
 
-    it('识别 Anthropic 模型', () => {
+    it('识别 Anthropic 模型（含 Claude 4.x）', () => {
         expect(inferProviderFromModel('claude-3-haiku-20240307')).toBe('anthropic');
         expect(inferProviderFromModel('claude-3.5-sonnet')).toBe('anthropic');
-    });
-
-    it('识别 Stability 模型', () => {
-        expect(inferProviderFromModel('sdxl-turbo')).toBe('stability');
-        expect(inferProviderFromModel('stable-diffusion-xl-1024')).toBe('stability');
+        expect(inferProviderFromModel('claude-opus-4-6')).toBe('anthropic');
+        expect(inferProviderFromModel('claude-sonnet-4-6')).toBe('anthropic');
+        expect(inferProviderFromModel('claude-haiku-4-5')).toBe('anthropic');
     });
 
     it('识别 Qwen 模型', () => {
@@ -38,16 +45,26 @@ describe('inferProviderFromModel', () => {
         expect(inferProviderFromModel('banana2-video-fast')).toBe('banana');
     });
 
-    it('推断模型能力', () => {
+    it('识别 DeepSeek 模型', () => {
+        expect(inferProviderFromModel('deepseek-chat')).toBe('deepseek');
+        expect(inferProviderFromModel('deepseek-reasoner')).toBe('deepseek');
+    });
+
+    it('推断模型能力（含新模型）', () => {
         expect(inferCapabilityFromModel('gemini-2.5-pro')).toBe('text');
-        expect(inferCapabilityFromModel('gemini-2.5-flash-image')).toBe('image');
+        expect(inferCapabilityFromModel('gemini-3-flash-preview')).toBe('text');
+        expect(inferCapabilityFromModel('gemini-3.1-flash-image-preview')).toBe('image');
+        expect(inferCapabilityFromModel('gemini-3-pro-image-preview')).toBe('image');
         expect(inferCapabilityFromModel('imagen-4.0-generate-001')).toBe('image');
-        expect(inferCapabilityFromModel('veo-3.1-fast-generate-preview')).toBe('video');
+        expect(inferCapabilityFromModel('veo-3.1-generate-preview')).toBe('video');
         expect(inferCapabilityFromModel('banana2-video-fast')).toBe('agent');
+        expect(inferCapabilityFromModel('gpt-5.4')).toBe('text');
+        expect(inferCapabilityFromModel('gpt-image-1.5')).toBe('image');
     });
 
     it('识别 Google 图片模型类型', () => {
         expect(isGoogleImageEditModel('gemini-2.5-flash-image')).toBe(true);
+        expect(isGoogleImageEditModel('gemini-3.1-flash-image-preview')).toBe(true);
         expect(isGoogleImageEditModel('imagen-4.0-generate-001')).toBe(false);
         expect(isGoogleTextToImageModel('imagen-4.0-generate-001')).toBe(true);
         expect(isGoogleTextToImageModel('gemini-2.5-flash-image')).toBe(false);
@@ -56,5 +73,42 @@ describe('inferProviderFromModel', () => {
     it('未知模型回退到 custom', () => {
         expect(inferProviderFromModel('some-unknown-model')).toBe('custom');
         expect(inferProviderFromModel('')).toBe('custom');
+    });
+
+    it('Stability 模型已移除 — 回退到 custom', () => {
+        expect(inferProviderFromModel('sdxl-turbo')).toBe('custom');
+        expect(inferProviderFromModel('stable-diffusion-xl-1024')).toBe('custom');
+    });
+});
+
+describe('diagnoseKeyCapabilities', () => {
+    it('无 Key 时报告全部缺失', () => {
+        const result = diagnoseKeyCapabilities([]);
+        expect(result.covered).toEqual([]);
+        expect(result.missing).toEqual(['text', 'image', 'video', 'agent']);
+        expect(result.warnings.length).toBeGreaterThan(0);
+    });
+
+    it('有 Google Key 时覆盖 text/image/video', () => {
+        const keys: UserApiKey[] = [{
+            id: '1', provider: 'google', key: 'AIzaSyFakeKey123456',
+            capabilities: ['text', 'image', 'video'],
+            createdAt: Date.now(), updatedAt: Date.now(),
+        }];
+        const result = diagnoseKeyCapabilities(keys);
+        expect(result.covered).toContain('text');
+        expect(result.covered).toContain('image');
+        expect(result.covered).toContain('video');
+        expect(result.missing).toContain('agent');
+    });
+
+    it('缺少 Google Key 时给出建议', () => {
+        const keys: UserApiKey[] = [{
+            id: '1', provider: 'openai', key: 'sk-proj-FakeKey123',
+            capabilities: ['text'],
+            createdAt: Date.now(), updatedAt: Date.now(),
+        }];
+        const result = diagnoseKeyCapabilities(keys);
+        expect(result.warnings.some(w => w.includes('Google'))).toBe(true);
     });
 });

@@ -8,7 +8,7 @@
  * 用最简单的 3 步流程帮助小白用户完成 API Key 的配置。
  *
  * 【步骤】
- * Step 1: 欢迎页 — 介绍 MakingLovart 并引导用户获取 API Key
+ * Step 1: 欢迎页 — 介绍 Flovart 并引导用户获取 API Key
  * Step 2: 输入 API Key — 一个输入框 + 自动验证
  * Step 3: 完成 — 确认配置成功，可以开始创作
  *
@@ -36,7 +36,7 @@ interface OnboardingWizardProps {
 
 /** 各步骤标题 */
 const STEPS = [
-    { title: '欢迎使用 MakingLovart', subtitle: '让我们花 30 秒完成配置' },
+    { title: '欢迎使用 Flovart', subtitle: '让我们花 30 秒完成配置' },
     { title: '粘贴你的 API Key', subtitle: '只需一步，即可开始 AI 创作' },
     { title: '配置完成 🎉', subtitle: '一切就绪，开始创作吧' },
 ] as const;
@@ -44,9 +44,8 @@ const STEPS = [
 /** Provider 对应的默认 capabilities */
 const PROVIDER_CAPABILITIES: Record<AIProvider, AICapability[]> = {
     google: ['text', 'image', 'video'],
-    openai: ['text', 'image'],
+    openai: ['text'],
     anthropic: ['text'],
-    stability: ['image'],
     qwen: ['text'],
     banana: ['agent'],
     deepseek: ['text'],
@@ -62,13 +61,13 @@ const PROVIDER_LABELS: Record<string, string> = {
     google: 'Google Gemini',
     openai: 'OpenAI',
     anthropic: 'Anthropic Claude',
-    stability: 'Stability AI',
     qwen: 'Qwen 通义千问',
     deepseek: 'DeepSeek',
     siliconflow: 'SiliconFlow',
     keling: 'Keling 可灵',
     flux: 'Flux',
     midjourney: 'Midjourney',
+    custom: '自定义 / 第三方',
 };
 
 export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
@@ -83,6 +82,10 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
     const [showKey, setShowKey] = useState(false);
     const [isValidating, setIsValidating] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    // ── 自定义第三方 API 专用状态 ──
+    const [customBaseUrl, setCustomBaseUrl] = useState('');
+    const [customCaps, setCustomCaps] = useState<AICapability[]>(['text', 'image']);
+    const [customModelInput, setCustomModelInput] = useState('');
 
     if (!isOpen) return null;
 
@@ -114,20 +117,35 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
      */
     const handleValidateAndSave = async () => {
         if (!apiKey.trim()) return;
+        if (provider === 'custom' && !customBaseUrl.trim()) {
+            setError('自定义提供商必须填写 Base URL');
+            return;
+        }
         setIsValidating(true);
         setError(null);
 
         try {
-            const result = await validateApiKey(provider, apiKey.trim());
+            const baseUrlForValidation = provider === 'custom' ? customBaseUrl.trim() || undefined : undefined;
+            const result = await validateApiKey(provider, apiKey.trim(), baseUrlForValidation);
             if (result.ok) {
                 // 验证通过，保存 Key 并进入完成页
+                const caps = provider === 'custom' ? customCaps : PROVIDER_CAPABILITIES[provider];
+                const customModels = provider === 'custom' && customModelInput.trim()
+                    ? customModelInput.split(',').map(m => m.trim()).filter(Boolean)
+                    : undefined;
                 onAddApiKey({
                     provider,
-                    capabilities: PROVIDER_CAPABILITIES[provider],
+                    capabilities: caps,
                     key: apiKey.trim(),
-                    name: `${PROVIDER_LABELS[provider] || provider} Key`,
+                    name: provider === 'custom'
+                        ? (() => { try { return `自定义 (${new URL(customBaseUrl.trim()).host})`; } catch { return '自定义 API'; } })()
+                        : `${PROVIDER_LABELS[provider] || provider} Key`,
                     status: 'ok',
                     isDefault: true,
+                    ...(provider === 'custom' && {
+                        baseUrl: customBaseUrl.trim(),
+                        customModels,
+                    }),
                 });
                 setStep(2);
             } else {
@@ -182,7 +200,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                             {STEPS[0].subtitle}
                         </p>
                         <p className={`mb-8 text-sm leading-relaxed ${textSecondary}`}>
-                            MakingLovart 使用 AI 帮你在画布上生成图片和视频。<br />
+                            Flovart 使用 AI 帮你在画布上生成图片和视频。<br />
                             你只需要一个 <strong className={textPrimary}>Google Gemini API Key</strong>（免费）就能开始。
                         </p>
 
@@ -221,7 +239,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                                 AI 服务商
                             </label>
                             <div className="flex flex-wrap gap-2">
-                                {(['google', 'openai', 'anthropic', 'deepseek', 'siliconflow', 'qwen', 'stability', 'keling', 'flux', 'midjourney'] as AIProvider[]).map(p => (
+                                {(['google', 'openai', 'anthropic', 'deepseek', 'siliconflow', 'qwen', 'keling', 'flux', 'midjourney', 'custom'] as AIProvider[]).map(p => (
                                     <button
                                         key={p}
                                         type="button"
@@ -241,6 +259,61 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                                 ))}
                             </div>
                         </div>
+
+                        {/* ── 自定义第三方 API 额外字段 ── */}
+                        {provider === 'custom' && (
+                            <>
+                                <div className="mb-4">
+                                    <label className={`mb-2 block text-xs font-semibold uppercase tracking-wider ${textSecondary}`}>
+                                        Base URL <span className="normal-case text-red-400">*</span>
+                                    </label>
+                                    <input
+                                        value={customBaseUrl}
+                                        onChange={(e) => setCustomBaseUrl(e.target.value)}
+                                        placeholder="https://api.example.com/v1"
+                                        className={inputClass}
+                                    />
+                                </div>
+                                <div className="mb-4">
+                                    <label className={`mb-2 block text-xs font-semibold uppercase tracking-wider ${textSecondary}`}>
+                                        支持的能力
+                                    </label>
+                                    <div className="flex flex-wrap gap-2">
+                                        {(['text', 'image', 'video', 'agent'] as AICapability[]).map(cap => (
+                                            <button
+                                                key={cap}
+                                                type="button"
+                                                onClick={() => setCustomCaps(prev =>
+                                                    prev.includes(cap) ? prev.filter(c => c !== cap) : [...prev, cap]
+                                                )}
+                                                className={`rounded-full border px-3 py-1.5 text-xs font-medium transition ${
+                                                    customCaps.includes(cap)
+                                                        ? isDark
+                                                            ? 'border-green-500 bg-green-500/20 text-green-400'
+                                                            : 'border-green-500 bg-green-50 text-green-600'
+                                                        : isDark
+                                                            ? 'border-[#2A3140] text-[#98A2B3] hover:bg-[#1B2029]'
+                                                            : 'border-[#E4E7EC] text-[#667085] hover:bg-[#F9FAFB]'
+                                                }`}
+                                            >
+                                                {cap === 'text' ? '✏️ LLM润色' : cap === 'image' ? '🖼️ 图片生成' : cap === 'video' ? '🎬 视频生成' : '🤖 Agent'}
+                                            </button>
+                                        ))}
+                                    </div>
+                                </div>
+                                <div className="mb-4">
+                                    <label className={`mb-2 block text-xs font-semibold uppercase tracking-wider ${textSecondary}`}>
+                                        模型名称 <span className="normal-case opacity-60">(可选, 逗号分隔)</span>
+                                    </label>
+                                    <input
+                                        value={customModelInput}
+                                        onChange={(e) => setCustomModelInput(e.target.value)}
+                                        placeholder="gpt-4o, claude-3-opus, ..."
+                                        className={inputClass}
+                                    />
+                                </div>
+                            </>
+                        )}
 
                         {/* API Key 输入框 */}
                         <div className="mb-4">
@@ -290,8 +363,15 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                                 </>
                             )}
                             {provider === 'anthropic' && '💡 支持 Claude 模型的提示词润色功能。'}
-                            {provider === 'stability' && '💡 支持 Stable Diffusion XL 图片生成。'}
                             {provider === 'qwen' && '💡 支持通义千问模型的提示词润色功能。'}
+                            {provider === 'custom' && (
+                                <>
+                                    💡 支持所有 <strong className={textPrimary}>OpenAI 兼容</strong> 的第三方 API。<br />
+                                    填入 Base URL（如 <code className="text-blue-500">https://api.xxx.com/v1</code>），勾选支持的能力，添加 API Key 即可。
+                                    <br />
+                                    <span className="mt-1 inline-block">适用于 Ollama / vLLM / LiteLLM / OneAPI / 各类中转站等。</span>
+                                </>
+                            )}
                         </div>
 
                         {/* 错误提示 */}
@@ -306,7 +386,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                         {/* 自动推断的功能 */}
                         <div className={`mb-6 flex items-center gap-2 text-xs ${textSecondary}`}>
                             <span>自动启用：</span>
-                            {PROVIDER_CAPABILITIES[provider].map(cap => (
+                            {(provider === 'custom' ? customCaps : PROVIDER_CAPABILITIES[provider]).map(cap => (
                                 <span key={cap} className={`rounded-full px-2 py-0.5 ${isDark ? 'bg-[#1B2330] text-[#7CB4FF]' : 'bg-[#EFF6FF] text-[#175CD3]'}`}>
                                     {cap === 'text' ? '✏️ LLM润色' : cap === 'image' ? '🖼️ 图片生成' : cap === 'video' ? '🎬 视频生成' : '🤖 Agent'}
                                 </span>
@@ -357,7 +437,7 @@ export const OnboardingWizard: React.FC<OnboardingWizardProps> = ({
                                 <span className={`text-sm font-medium ${textPrimary}`}>{PROVIDER_LABELS[provider] || provider}</span>
                             </div>
                             <div className={`mt-2 text-xs ${textSecondary}`}>
-                                可用功能：{PROVIDER_CAPABILITIES[provider].map(c =>
+                                可用功能：{(provider === 'custom' ? customCaps : PROVIDER_CAPABILITIES[provider]).map(c =>
                                     c === 'text' ? 'LLM润色' : c === 'image' ? '图片生成' : c === 'video' ? '视频生成' : 'Agent'
                                 ).join('、')}
                             </div>

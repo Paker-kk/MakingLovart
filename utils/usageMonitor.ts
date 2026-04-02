@@ -3,7 +3,7 @@
  * Data is persisted in localStorage.
  */
 
-const STORAGE_KEY = 'makinglovart.api_usage';
+const STORAGE_KEY = 'flovart.api_usage';
 
 export interface UsageRecord {
   /** UserApiKey.id */
@@ -48,7 +48,6 @@ const COST_MAP: Record<string, Record<string, number>> = {
   google:     { text: 0.5, image: 3, video: 10 },
   openai:     { text: 1,   image: 4, video: 0  },
   anthropic:  { text: 1.5, image: 0, video: 0  },
-  stability:  { text: 0,   image: 3, video: 8  },
   qwen:       { text: 0.3, image: 2, video: 5  },
   deepseek:   { text: 0.2, image: 0, video: 0  },
   siliconflow: { text: 0.2, image: 1.5, video: 5 },

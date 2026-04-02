@@ -1,5 +1,5 @@
 {
-  "name": "Making",
-  "description": "An infinite canvas powered by Gemini (Nano Banana model) for generating and editing images with text prompts. Features basic drawing tools and allows users to upload, drag, and paste images onto a Miro-like whiteboard.",
+  "name": "Flovart",
+  "description": "BYOK AI Canvas & Design Studio — use your own API keys with multiple AI providers (Gemini, DALL-E, SDXL, Claude) on an infinite canvas. Available as web app, desktop app, and Chrome extension.",
   "requestFramePermissions": []
 }

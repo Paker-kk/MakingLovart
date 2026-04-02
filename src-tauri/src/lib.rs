@@ -1,4 +1,4 @@
-// MakingLovart - Tauri 后端入口
+// Flovart - Tauri 后端入口
 // 注册 Tauri 插件并启动应用窗口
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
