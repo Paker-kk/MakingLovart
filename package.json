@@ -6,10 +6,15 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 4173",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "mcp": "tsx mcp/server.ts"
   },
   "dependencies": {
     "@google/genai": "^1.17.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@tauri-apps/api": "^2.10.1",
+    "@tauri-apps/plugin-opener": "^2.5.3",
+    "@tauri-apps/plugin-updater": "^2.10.1",
     "@tiptap/core": "^3.20.0",
     "@tiptap/extension-mention": "^3.20.0",
     "@tiptap/pm": "^3.20.0",
@@ -19,11 +24,16 @@
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "tippy.js": "^6.3.7",
+    "ws": "^8.20.0",
+    "zod": "^4.3.6",
     "zustand": "^5.0.12"
   },
   "devDependencies": {
+    "@tauri-apps/cli": "^2.10.1",
     "@types/node": "^22.14.0",
+    "@types/ws": "^8.18.1",
     "@vitejs/plugin-react": "^5.0.0",
+    "tsx": "^4.21.0",
     "typescript": "~5.8.2",
     "vite": "^6.2.0"
   }

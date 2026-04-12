@@ -1,170 +1,189 @@
-import React, { useRef } from 'react';
+/**
+ * ============================================
+ * 主工具栏组件 (Toolbar)
+ * ============================================
+ * 
+ * 【组件职责】
+ * 提供画布创作的所有工具按钮，是用户操作画布的主要入口
+ * 
+ * 【核心功能】
+ * 1. 工具选择：选择、平移、绘图、形状等工具
+ * 2. 绘图选项：颜色选择器、笔刷粗细调整
+ * 3. 文件上传：上传图片到画布
+ * 4. 撤销/重做：操作历史管理
+ * 5. 面板控制：打开设置、图层、画板面板
+ * 6. 裁剪模式：显示裁剪确认/取消按钮
+ * 7. 智能定位：根据图层面板状态调整位置
+ * 
+ * 【工具分类】
+ * - 基础工具：选择、平移
+ * - 形状工具：矩形、圆形、三角形、直线、箭头
+ * - 绘图工具：画笔、高亮笔、套索、橡皮擦
+ * - 其他工具：文本
+ * 
+ * 【设计模式】
+ * - 工具组：相关工具折叠在一起，点击展开选择
+ * - 响应式定位：根据图层面板展开/收起调整位置
+ * - 状态提示：活跃工具高亮显示
+ * 
+ * 【交互逻辑】
+ * - 点击工具按钮：切换当前工具
+ * - 工具组按钮：点击展开，选择工具后自动收起
+ * - 颜色/粗细：实时调整绘图参数
+ * - 裁剪模式：切换为裁剪操作面板
+ */
+
+import React, { useState, useRef, useEffect } from 'react';
 import type { Tool } from '../types';
 
+/**
+ * 【Props 接口定义】
+ */
 interface ToolbarProps {
-    t: (key: string) => string;
-    activeTool: Tool;
-    setActiveTool: (tool: Tool) => void;
-    drawingOptions: { strokeColor: string; strokeWidth: number };
-    setDrawingOptions: (options: { strokeColor: string; strokeWidth: number }) => void;
-    onUpload: (file: File) => void;
-    isCropping: boolean;
-    onConfirmCrop: () => void;
-    onCancelCrop: () => void;
-    onSettingsClick: () => void;
-    onLayersClick: () => void;
-    onBoardsClick: () => void;
-    onUndo: () => void;
-    onRedo: () => void;
-    canUndo: boolean;
-    canRedo: boolean;
-    embedded?: boolean;
-    isCompact?: boolean;
-    compactBottomInset?: number;
+    t: (key: string) => string;           // 国际化翻译函数
+    activeTool: Tool;                     // 当前激活的工具
+    setActiveTool: (tool: Tool) => void;  // 设置工具的回调
+    drawingOptions: { strokeColor: string; strokeWidth: number };  // 绘图选项
+    setDrawingOptions: (options: { strokeColor: string; strokeWidth: number }) => void;  // 设置绘图选项
+    onUpload: (file: File) => void;       // 文件上传回调
+    isCropping: boolean;                  // 是否处于裁剪模式
+    onConfirmCrop: () => void;            // 确认裁剪回调
+    onCancelCrop: () => void;             // 取消裁剪回调
+    onSettingsClick: () => void;          // 打开设置回调
+    onLayersClick: () => void;            // 打开图层面板回调
+    onBoardsClick: () => void;            // 打开画板面板回调
+    onUndo: () => void;                   // 撤销回调
+    onRedo: () => void;                   // 重做回调
+    canUndo: boolean;                     // 是否可以撤销
+    canRedo: boolean;                     // 是否可以重做
+    isLayerPanelExpanded?: boolean;       // 图层面板是否展开
+    onLeftChange?: (leftPx: number) => void;  // 位置改变回调
 }
 
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
-type ToolDef = {
-    id: Tool | 'upload' | 'undo' | 'redo' | 'layers' | 'boards' | 'settings';
+/**
+ * 【子组件】工具按钮
+ * 
+ * 单个工具按钮的统一样式和交互
+ * 
+ * @param {string} label - 按钮标签（用于辅助功能）
+ * @param {JSX.Element} icon - 按钮图标
+ * @param {boolean} isActive - 是否为活跃状态
+ * @param {Function} onClick - 点击回调
+ * @param {boolean} disabled - 是否禁用
+ * @param {string} className - 额外的CSS类名
+ */
+const ToolButton: React.FC<{
     label: string;
     icon: JSX.Element;
-    onClick?: () => void;
+    isActive?: boolean;
+    onClick: () => void;
     disabled?: boolean;
-=======
-const baseButtonClass =
-    'flex h-8 w-8 items-center justify-center rounded-[14px] border border-transparent text-neutral-500 transition hover:bg-white hover:text-neutral-900';
-
-const activeButtonClass = 'border-neutral-200 bg-white text-neutral-900 shadow-[0_8px_16px_rgba(15,23,42,0.10)]';
-
-const panelPosition = {
-    leftClosed: 16,
-    leftOpen: 288,
->>>>>>> Stashed changes
-};
-=======
-const iconSize = 18;
-
-const groupTitleClass = 'm3-toolbar__section-title';
->>>>>>> Stashed changes
-
-const baseButtonClass =
-    'inline-flex h-11 w-11 items-center justify-center rounded-2xl border border-transparent text-neutral-600 transition-all hover:border-neutral-200 hover:bg-white hover:text-neutral-900 disabled:cursor-not-allowed disabled:opacity-30';
-
-const activeButtonClass = 'border-neutral-900 bg-neutral-900 text-white shadow-[0_10px_24px_rgba(15,23,42,0.14)]';
-
-function ToolButton({
-    label,
-    icon,
-    active = false,
-    disabled = false,
-    onClick,
-}: {
-    label: string;
-    icon: JSX.Element;
-    active?: boolean;
-    disabled?: boolean;
-<<<<<<< Updated upstream
-    onClick?: () => void;
-}) {
-    return (
-        <button
-            type="button"
-            aria-label={label}
-            title={label}
-            disabled={disabled}
-            onClick={onClick}
-            className={`${baseButtonClass} ${active ? activeButtonClass : ''}`}
-        >
-            {icon}
-        </button>
-=======
-    theme: 'light' | 'dark';
-    tone?: 'accent' | 'neutral';
-    hasMenu?: boolean;
-}> = ({ label, icon, onClick, active = false, disabled = false, theme, tone = 'neutral', hasMenu = false }) => (
+    className?: string;
+}> = ({ label, icon, isActive = false, onClick, disabled = false, className = '' }) => (
     <button
-        type="button"
+        onClick={onClick}
         aria-label={label}
         title={label}
-        onClick={onClick}
         disabled={disabled}
-        className={`m3-tool-button ${active ? 'm3-tool-button--active' : ''} ${theme === 'dark' ? 'm3-tool-button--dark' : 'm3-tool-button--light'} ${tone === 'accent' ? 'm3-tool-button--accent' : ''}`}
+        className={`p-2 rounded-md transition-colors duration-200 text-neutral-500 ${
+            isActive ? 'bg-neutral-100 text-neutral-600' : 'hover:bg-neutral-50'  // 活跃状态高亮
+        } disabled:text-neutral-300 disabled:hover:bg-transparent disabled:cursor-not-allowed ${className}`}
     >
-        <span className="m3-tool-button__icon">{icon}</span>
-        {hasMenu && <span className="m3-tool-button__menu-dot" aria-hidden="true" />}
+        {icon}
     </button>
 );
 
+/**
+ * 【子组件】工具组按钮
+ * 
+ * 将多个相关工具折叠在一起，点击展开选择
+ * 例如：形状工具组（矩形、圆形、三角形、直线、箭头）
+ * 
+ * 【功能】
+ * - 显示当前选中的工具图标
+ * - 点击展开工具列表
+ * - 选择工具后自动收起
+ * - 点击外部区域自动关闭
+ * 
+ * @param {Tool} activeTool - 当前激活的工具
+ * @param {Function} setActiveTool - 设置工具的回调
+ * @param {Array} tools - 工具组中的工具列表
+ * @param {JSX.Element} groupIcon - 工具组默认图标
+ * @param {string} groupLabel - 工具组标签
+ */
 const ToolGroupButton: React.FC<{
-    label: string;
     activeTool: Tool;
     setActiveTool: (tool: Tool) => void;
-    items: Array<{ id: Tool; label: string; icon: React.ReactNode }>;
-    fallbackIcon: React.ReactNode;
-    theme: 'light' | 'dark';
-}> = ({ label, activeTool, setActiveTool, items, fallbackIcon, theme }) => {
-    const [open, setOpen] = useState(false);
-    const wrapperRef = useRef<HTMLDivElement>(null);
-    const activeItem = items.find(item => item.id === activeTool);
+    tools: { id: Tool; label: string; icon: JSX.Element }[];
+    groupIcon: JSX.Element;
+    groupLabel: string;
+}> = ({ activeTool, setActiveTool, tools, groupIcon, groupLabel }) => {
+    // ============ 状态和引用 ============
+    const [isOpen, setIsOpen] = useState(false);              // 是否展开
+    const wrapperRef = useRef<HTMLDivElement>(null);          // 容器引用
 
+    // 查找当前工具是否在这个工具组中
+    const activeToolInGroup = tools.find(t => t.id === activeTool);
+
+    // ============ 副作用 ============
+    
+    /**
+     * 【Effect】点击外部关闭工具组
+     * 监听全局点击事件，点击组件外部时关闭展开的工具列表
+     */
     useEffect(() => {
-        const handleOutsideClick = (event: MouseEvent) => {
+        const handleClickOutside = (event: MouseEvent) => {
             if (wrapperRef.current && !wrapperRef.current.contains(event.target as Node)) {
-                setOpen(false);
+                setIsOpen(false);
             }
         };
-        document.addEventListener('mousedown', handleOutsideClick);
-        return () => document.removeEventListener('mousedown', handleOutsideClick);
+        document.addEventListener('mousedown', handleClickOutside);
+        return () => document.removeEventListener('mousedown', handleClickOutside);
     }, []);
 
+    /**
+     * 【方法】选择工具
+     * 切换到指定工具并关闭工具列表
+     */
+    const handleToolSelect = (toolId: Tool) => {
+        setActiveTool(toolId);
+        setIsOpen(false);  // 选择后自动关闭
+    };
+
+    // ============ 渲染 ============
+    
     return (
-        <div className="relative" ref={wrapperRef}>
+        <div className="relative flex-shrink-0" ref={wrapperRef}>
+            {/* 工具组按钮 - 显示当前选中的工具或默认图标 */}
             <ToolButton
-                label={label}
-                icon={activeItem?.icon ?? fallbackIcon}
-                active={!!activeItem}
-                onClick={() => setOpen(prev => !prev)}
-                theme={theme}
-                hasMenu
+                label={activeToolInGroup ? activeToolInGroup.label : groupLabel}
+                icon={activeToolInGroup ? activeToolInGroup.icon : groupIcon}
+                isActive={!!activeToolInGroup}  // 如果工具组中有工具被激活，则高亮
+                onClick={() => setIsOpen(prev => !prev)}  // 切换展开/收起
             />
-            {open && (
-                <div className={`m3-toolbar__flyout ${theme === 'dark' ? 'm3-toolbar__flyout--dark' : 'm3-toolbar__flyout--light'}`}>
-                    {items.map(item => (
+            
+            {/* 展开的工具列表 - 点击按钮时显示 */}
+            {isOpen && (
+                <div className="absolute left-full top-0 ml-2 p-1 bg-white border border-neutral-200 rounded-lg shadow-2xl flex flex-col gap-1">
+                    {tools.map(tool => (
                         <ToolButton
-                            key={item.id}
-                            label={item.label}
-                            icon={item.icon}
-                            active={activeTool === item.id}
-                            onClick={() => {
-                                setActiveTool(item.id);
-                                setOpen(false);
-                            }}
-                            theme={theme}
+                            key={tool.id}
+                            label={tool.label}
+                            icon={tool.icon}
+                            isActive={activeTool === tool.id}
+                            onClick={() => handleToolSelect(tool.id)}
+                            className=""
                         />
                     ))}
                 </div>
             )}
         </div>
->>>>>>> Stashed changes
     );
-}
-
-const toolMap: Record<Tool, ToolDef> = {
-    select: { id: 'select', label: '选择', icon: <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z" /><path d="M13 13l6 6" /></svg> },
-    pan: { id: 'pan', label: '拖拽', icon: <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 2v20" /><path d="M2 12h20" /><path d="m5 9-3 3 3 3" /><path d="m19 9 3 3-3 3" /><path d="m9 5 3-3 3 3" /><path d="m9 19 3 3 3-3" /></svg> },
-    draw: { id: 'draw', label: '画笔', icon: <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" /><path d="m15 5 4 4" /></svg> },
-    erase: { id: 'erase', label: '橡皮擦', icon: <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 2.5 0 3.4L13 21H7Z" /></svg> },
-    rectangle: { id: 'rectangle', label: '矩形', icon: <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="4" y="4" width="16" height="16" rx="2" /></svg> },
-    circle: { id: 'circle', label: '圆形', icon: <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="8" /></svg> },
-    triangle: { id: 'triangle', label: '三角形', icon: <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" /></svg> },
-    text: { id: 'text', label: '文字', icon: <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 7V4h16v3" /><path d="M12 4v16" /><path d="M9 20h6" /></svg> },
-    arrow: { id: 'arrow', label: '箭头', icon: <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="5" y1="12" x2="19" y2="12" /><polyline points="12 5 19 12 12 19" /></svg> },
-    highlighter: { id: 'highlighter', label: '高亮', icon: <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m18.37 2.63 1.4 1.4a2 2 0 0 1 0 2.82L5.23 21.37a2.82 2.82 0 0 1-4-4L15.55 2.63a2 2 0 0 1 2.82 0Z" /></svg> },
-    lasso: { id: 'lasso', label: '套索', icon: <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><ellipse cx="12" cy="12" rx="8" ry="5" strokeDasharray="3 3" transform="rotate(-30 12 12)" /></svg> },
-    line: { id: 'line', label: '线条', icon: <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="5" y1="19" x2="19" y2="5" /></svg> },
 };
 
+/**
+ * 【主组件】工具栏 (Toolbar)
+ */
 export const Toolbar: React.FC<ToolbarProps> = ({
     t,
     activeTool,
@@ -182,527 +201,276 @@ export const Toolbar: React.FC<ToolbarProps> = ({
     onRedo,
     canUndo,
     canRedo,
-    embedded = false,
-    isCompact = false,
-    compactBottomInset = 112,
+    isLayerPanelExpanded = false,
+    onLeftChange,
 }) => {
-    const fileInputRef = useRef<HTMLInputElement>(null);
-<<<<<<< Updated upstream
-=======
-    const leftPosition = isLayerPanelExpanded ? leftOpen : leftClosed;
-    const isDark = theme === 'dark';
-    const toolbarScale = Math.max(0.78, compactScale * 0.86);
-    const toolbarHeight = 392 * toolbarScale;
->>>>>>> Stashed changes
+    // ============ 引用和状态 ============
+    const fileInputRef = React.useRef<HTMLInputElement>(null);  // 文件输入框引用
 
-<<<<<<< Updated upstream
+    // ============ 事件处理 ============
+    
+    /**
+     * 【方法】触发文件上传
+     * 点击上传按钮时，触发隐藏的文件输入框
+     */
     const handleUploadClick = () => fileInputRef.current?.click();
-    const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-        const file = event.target.files?.[0];
-        if (file) {
-            onUpload(file);
-            event.target.value = '';
+    
+    /**
+     * 【方法】处理文件选择
+     * 文件选择后，调用上传回调并清空输入框
+     */
+    const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        if (e.target.files && e.target.files[0]) {
+            onUpload(e.target.files[0]);
+            e.target.value = '';  // 清空输入框，允许重复选择同一文件
         }
     };
-=======
+
+    // ============ 位置计算 ============
+    
+    /**
+     * 【计算】工具栏左侧位置
+     * 
+     * 根据图层面板的展开/收起状态调整工具栏位置
+     * - 图层面板展开时：288px（16px边距 + 256px面板宽度 + 16px间距）
+     * - 图层面板收起时：16px（紧贴左边）
+     * 
+     * 这样工具栏始终不会被图层面板遮挡
+     */
+    const leftPosition = isLayerPanelExpanded ? 288 : 16;
+
+    /**
+     * 【Effect】通知位置变化
+     * 当位置改变时，通知父组件（如果提供了回调）
+     */
     useEffect(() => {
-        onLeftChange?.(leftPosition);
+        if (onLeftChange) {
+            onLeftChange(leftPosition);
+        }
     }, [leftPosition, onLeftChange]);
 
-    useEffect(() => {
-<<<<<<< Updated upstream
-        onHeightChange?.(380);
-    }, [onHeightChange]);
-=======
-        onHeightChange?.(toolbarHeight);
-    }, [onHeightChange, toolbarHeight]);
->>>>>>> Stashed changes
+    /**
+     * 容器样式：背景色和动态左侧位置
+     */
+    const containerStyle: React.CSSProperties = {
+        backgroundColor: `var(--ui-bg-color)`,
+        left: `${leftPosition}px`,
+        transition: 'left 0.35s cubic-bezier(0.4, 0, 0.2, 1)',  // 平滑过渡动画
+    };
 
-    const shapeTools = useMemo<Array<{ id: Tool; label: string; icon: React.ReactNode }>>(
-        () => [
-            {
-                id: 'rectangle',
-                label: t('toolbar.rectangle'),
-                icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="4" y="4" width="16" height="16" rx="2" /></svg>,
-            },
-            {
-                id: 'circle',
-                label: t('toolbar.circle'),
-                icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="8" /></svg>,
-            },
-            {
-                id: 'triangle',
-                label: t('toolbar.triangle'),
-                icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m12 5 8 14H4L12 5Z" /></svg>,
-            },
-            {
-                id: 'line',
-                label: t('toolbar.line'),
-                icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 19 19 5" /></svg>,
-            },
-            {
-                id: 'arrow',
-                label: t('toolbar.arrow'),
-                icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M5 12h14" /><path d="m12 5 7 7-7 7" /></svg>,
-            },
-        ],
-        [t]
-    );
-
-    const drawingTools = useMemo<Array<{ id: Tool; label: string; icon: React.ReactNode }>>(
-        () => [
-            {
-                id: 'draw',
-                label: t('toolbar.draw'),
-                icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17 3a2.8 2.8 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3Z" /></svg>,
-            },
-            {
-                id: 'highlighter',
-                label: t('toolbar.highlighter'),
-                icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m15 5 4 4" /><path d="M12 8 4 16l-1 5 5-1 8-8" /></svg>,
-            },
-            {
-                id: 'lasso',
-                label: t('toolbar.lasso'),
-                icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><ellipse cx="12" cy="11" rx="7.5" ry="5" strokeDasharray="3 3" /><path d="M15 16c0 2-1 3-2.5 3S10 18 10 17.2" /></svg>,
-            },
-            {
-                id: 'erase',
-                label: t('toolbar.erase'),
-                icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m7 21-4-4 10-10 4 4-10 10Z" /><path d="M14 7 9 2" /><path d="M17 21H7" /></svg>,
-            },
-        ],
-        [t]
-    );
->>>>>>> Stashed changes
-
-    const isShapeActive = shapeTools.some(item => item.id === activeTool);
-    const isDrawingActive = drawingTools.some(item => item.id === activeTool);
-
+    // ============ 渲染逻辑 ============
+    
+    /**
+     * 【渲染模式 1】裁剪模式
+     * 当处于裁剪状态时，显示裁剪确认/取消面板
+     */
     if (isCropping) {
         return (
-<<<<<<< Updated upstream
-            <div className="absolute left-6 top-6 z-[45] rounded-[22px] border border-neutral-200 bg-white p-3 shadow-[0_16px_36px_rgba(15,23,42,0.12)]">
-                <div className="mb-2 text-sm font-medium text-neutral-700">{t('toolbar.crop.title')}</div>
-                <div className="grid grid-cols-2 gap-2">
-                    <button onClick={onCancelCrop} className="rounded-xl border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm text-neutral-700">{t('toolbar.crop.cancel')}</button>
-                    <button onClick={onConfirmCrop} className="rounded-xl bg-neutral-900 px-3 py-2 text-sm text-white">{t('toolbar.crop.confirm')}</button>
-=======
-            <div
-                className={`m3-toolbar m3-toolbar--crop absolute top-3 z-[50] ${isDark ? 'm3-toolbar--dark' : 'm3-toolbar--light'}`}
-                style={{ left: `${leftPosition}px`, top: `${topOffset}px`, transform: `scale(${toolbarScale})`, transformOrigin: 'top left', transition: 'left 0.35s cubic-bezier(0.4, 0, 0.2, 1)' }}
+            <div 
+                style={containerStyle}
+                className="absolute left-4 top-4 z-10 w-44 p-3 border border-neutral-200 rounded-2xl shadow-xl bg-white flex flex-col gap-2"
             >
-                <div className="m3-toolbar__crop-title">{t('toolbar.crop.title')}</div>
-                <div className="m3-toolbar__crop-actions">
-                    <button
-                        type="button"
-                        onClick={onCancelCrop}
-                        className={`m3-toolbar__crop-button ${isDark ? 'm3-toolbar__crop-button--dark' : 'm3-toolbar__crop-button--light'}`}
+                {/* 标题 */}
+                <div className="flex items-center gap-2 text-neutral-700">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 7h4v10H3zM17 7h4v10h-4zM7 3h10v4H7zM7 17h10v4H7z"/></svg>
+                    <span className="text-sm font-medium">{t('toolbar.crop.title')}</span>
+                </div>
+                
+                {/* 分隔线 */}
+                <div className="w-full h-px bg-neutral-200"></div>
+                
+                {/* 操作按钮 */}
+                <div className="grid grid-cols-2 gap-2">
+                    <button 
+                        onClick={onCancelCrop} 
+                        className="px-3 py-1.5 text-sm rounded-md bg-neutral-50 hover:bg-white border border-neutral-200 text-neutral-700"
                     >
                         {t('toolbar.crop.cancel')}
                     </button>
-                    <button
-                        type="button"
-                        onClick={onConfirmCrop}
-                        className={`m3-toolbar__crop-button m3-toolbar__crop-button--primary ${isDark ? 'm3-toolbar__crop-button--primary-dark' : 'm3-toolbar__crop-button--primary-light'}`}
+                    <button 
+                        onClick={onConfirmCrop} 
+                        className="px-3 py-1.5 text-sm rounded-md bg-neutral-900 text-white hover:brightness-110"
                     >
                         {t('toolbar.crop.confirm')}
                     </button>
->>>>>>> Stashed changes
                 </div>
             </div>
-        );
+        )
     }
 
-    const desktopTools: ToolDef[] = [
-        toolMap.select,
-        toolMap.pan,
-        toolMap.draw,
-        toolMap.rectangle,
-        toolMap.circle,
-        toolMap.text,
-        toolMap.arrow,
-        toolMap.lasso,
-        { id: 'upload', label: '上传', icon: <svg width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 3v12" /><path d="m7 8 5-5 5 5" /><path d="M5 21h14" /></svg>, onClick: handleUploadClick },
+    // ============ 工具定义 ============
+    
+    /**
+     * 【基础工具】选择和平移
+     */
+    const mainTools: { id: Tool; label: string; icon: JSX.Element }[] = [
+        { id: 'select', label: t('toolbar.select'), icon: <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3l7.07 16.97 2.51-7.39 7.39-2.51L3 3z"/><path d="M13 13l6 6"/></svg> },
+        { id: 'pan', label: t('toolbar.pan'), icon: <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="5 9 2 12 5 15"></polyline><polyline points="9 5 12 2 15 5"></polyline><polyline points="15 19 12 22 9 19"></polyline><polyline points="19 9 22 12 19 15"></polyline><line x1="2" y1="12" x2="22" y2="12"></line><line x1="12" y1="2" x2="12" y2="22"></line></svg> },
+    ];
+    
+    /**
+     * 【形状工具组】矩形、圆形、三角形、直线、箭头
+     * 折叠在一个工具组按钮中
+     */
+    const shapeTools: { id: Tool; label: string; icon: JSX.Element }[] = [
+        { id: 'rectangle', label: t('toolbar.rectangle'), icon: <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="18" height="18" rx="2" ry="2" /></svg> },
+        { id: 'circle', label: t('toolbar.circle'), icon: <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /></svg> },
+        { id: 'triangle', label: t('toolbar.triangle'), icon: <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg> },
+        { id: 'line', label: t('toolbar.line'), icon: <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="5" y1="19" x2="19" y2="5"></line></svg> },
+        { id: 'arrow', label: t('toolbar.arrow'), icon: <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="5" y1="12" x2="19" y2="12"></line><polyline points="12 5 19 12 12 19"></polyline></svg> },
     ];
 
-    const mobileTools: ToolDef[] = [
-        toolMap.select,
-        toolMap.pan,
-        toolMap.text,
-        toolMap.rectangle,
-        toolMap.draw,
+    /**
+     * 【绘图工具组】画笔、高亮笔、套索、橡皮擦
+     * 折叠在一个工具组按钮中
+     */
+    const drawingTools: { id: Tool; label: string; icon: JSX.Element }[] = [
+        { id: 'draw', label: t('toolbar.draw'), icon: <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/><path d="m15 5 4 4"/></svg> },
+        { id: 'highlighter', label: t('toolbar.highlighter'), icon: <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m18.37 2.63 1.4 1.4a2 2 0 0 1 0 2.82L5.23 21.37a2.82 2.82 0 0 1-4-4L15.55 2.63a2 2 0 0 1 2.82 0Z"/><path d="m14 7 3 3"/><path d="M5 6v4"/><path d="M19 14v4"/><path d="M10 2v2"/><path d="M7 8v2"/></svg>},
+        { id: 'lasso', label: t('toolbar.lasso'), icon: <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><ellipse cx="12" cy="12" rx="8" ry="5" strokeDasharray="3 3" transform="rotate(-30 12 12)"/></svg>},
+        { id: 'erase', label: t('toolbar.erase'), icon: <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m7 21-4.3-4.3c-1-1-1-2.5 0-3.4l9.6-9.6c1-1 2.5-1 3.4 0l5.6 5.6c1 1 1 2.5 0 3.4L13 21H7Z"/><path d="M22 21H7"/><path d="m5 12 5 5"/></svg> },
     ];
 
-    const auxiliaryTools: ToolDef[] = [
-        { id: 'layers', label: '图层', icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m12 3 9 5-9 5-9-5 9-5Z" /><path d="m3 12 9 5 9-5" /><path d="m3 16 9 5 9-5" /></svg>, onClick: onLayersClick },
-        { id: 'boards', label: '项目', icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="7" height="7" /><rect x="14" y="3" width="7" height="7" /><rect x="14" y="14" width="7" height="7" /><rect x="3" y="14" width="7" height="7" /></svg>, onClick: onBoardsClick },
-        { id: 'settings', label: '设置', icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" /></svg>, onClick: onSettingsClick },
-        { id: 'undo', label: '撤销', icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 14 4 9l5-5" /><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5v0a5.5 5.5 0 0 1-5.5 5.5H11" /></svg>, onClick: onUndo, disabled: !canUndo },
-        { id: 'redo', label: '重做', icon: <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m15 14 5-5-5-5" /><path d="M20 9H9.5A5.5 5.5 0 0 0 4 14.5v0A5.5 5.5 0 0 0 9.5 20H13" /></svg>, onClick: onRedo, disabled: !canRedo },
+    /**
+     * 【其他工具】文本等
+     */
+    const miscTools: { id: Tool; label: string; icon: JSX.Element }[] = [
+        { id: 'text', label: t('toolbar.text'), icon: <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="4 7 4 4 20 4 20 7"></polyline><line x1="9" y1="20" x2="15" y2="20"></line><line x1="12" y1="4" x2="12" y2="20"></line></svg> },
     ];
 
-    const shellClass = embedded
-        ? 'absolute bottom-6 left-1/2 z-[42] -translate-x-1/2'
-        : `fixed left-1/2 z-[42] -translate-x-1/2 ${isCompact ? '' : ''}`;
-
-    const shellStyle = embedded
-        ? undefined
-        : { bottom: `${compactBottomInset}px` };
-
+    /**
+     * 【渲染模式 2】正常工具栏
+     * 
+     * 垂直工具栏布局（从上到下）：
+     * 1. 画板按钮
+     * 2. 设置按钮
+     * 3. 分隔线
+     * 4. 基础工具（选择、平移）
+     * 5. 形状工具组
+     * 6. 绘图工具组
+     * 7. 其他工具（文本）
+     * 8. 分隔线
+     * 9. 颜色选择器
+     * 10. 笔刷粗细滑块
+     * 11. 粗细数值显示
+     * 12. 分隔线
+     * 13. 文件上传按钮
+     * 14. 分隔线
+     * 15. 撤销/重做按钮
+     */
     return (
-<<<<<<< Updated upstream
-        <div className={shellClass} style={shellStyle}>
-=======
-        <div
-<<<<<<< Updated upstream
-            className={`absolute top-3 z-[40] flex flex-col items-center gap-1 rounded-[20px] border px-1 py-1.5 shadow-[0_20px_48px_rgba(15,23,42,0.24)] ${
-                isDark ? 'border-[#2A3140] bg-[#12151B] text-white' : 'border-neutral-200 bg-white text-[#111827]'
-            }`}
-=======
-            className={`m3-toolbar absolute z-[40] ${isDark ? 'm3-toolbar--dark' : 'm3-toolbar--light'}`}
->>>>>>> Stashed changes
+        <div 
+            className="absolute z-[40] px-2 py-4 backdrop-blur-xl border border-white/10 rounded-full shadow-2xl flex flex-col items-center gap-2 transition-all duration-300 ease-out"
             style={{
-                left: `${leftPosition}px`,
-<<<<<<< Updated upstream
-                transition: 'left 0.35s cubic-bezier(0.4, 0, 0.2, 1)',
+                ...containerStyle,
+                top: '50%',
+                transform: 'translateY(-50%)',
+                maxHeight: 'calc(100vh - 8rem)', // 上下各留 4rem 空间
             }}
         >
-            <ToolButton
-                label="Boards & Layers"
-                onClick={onLayersClick}
-                icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="4" y="5" width="7" height="14" rx="2" /><rect x="13" y="5" width="7" height="14" rx="2" /></svg>}
-                active={isLayerPanelExpanded}
-                theme={theme}
-            />
+            {/* 1. 画板按钮 */}
+            <ToolButton label="Boards" onClick={onBoardsClick} icon={<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7"></rect><rect x="14" y="3" width="7" height="7"></rect><rect x="14" y="14" width="7" height="7"></rect><rect x="3" y="14" width="7" height="7"></rect></svg>} />
+            
+            {/* 2. 设置按钮 */}
+            <ToolButton label={t('toolbar.settings')} onClick={onSettingsClick} icon={<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"></path></svg>} />
 
-            <div className={`h-px w-5 ${isDark ? 'bg-white/10' : 'bg-neutral-200'}`} />
-
-            <ToolButton
-                label={t('toolbar.select')}
-                icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m4 3 7 17 2.5-7.5L21 10 4 3Z" /><path d="m13 13 6 6" /></svg>}
-                active={activeTool === 'select'}
-                onClick={() => setActiveTool('select')}
-                theme={theme}
-            />
-            <ToolButton
-                label={t('toolbar.pan')}
-                icon={
-                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-=======
-                transform: `scale(${toolbarScale})`,
-                transformOrigin: 'top left',
-                transition: 'left 0.35s cubic-bezier(0.4, 0, 0.2, 1)',
-            }}
-        >
-            <div className="m3-toolbar__section">
-                <div className={groupTitleClass}>{t('toolbar.workspaceGroup')}</div>
-                <div className={`m3-toolbar__group ${isLayerPanelExpanded ? 'm3-toolbar__group--active' : ''}`}>
-                    <ToolButton
-                        label={t('toolbar.layers')}
-                        onClick={onLayersClick}
-                        icon={<svg width={iconSize} height={iconSize} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="4" y="5" width="7" height="14" rx="2" /><rect x="13" y="5" width="7" height="14" rx="2" /></svg>}
-                        active={isLayerPanelExpanded}
-                        theme={theme}
-                        tone="accent"
-                    />
-                    {onAssetsClick && (
-                        <ToolButton
-                            label={t('toolbar.assets')}
-                            onClick={onAssetsClick}
-                            icon={<svg width={iconSize} height={iconSize} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="4" y="4" width="16" height="16" rx="2" /><path d="M4 10h16" /><path d="M10 4v16" /></svg>}
-                            theme={theme}
-                        />
-                    )}
-                    <ToolButton
-                        label={t('toolbar.settings')}
-                        onClick={onSettingsClick}
-                        icon={<svg width={iconSize} height={iconSize} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 0 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 0 1-4 0v-.1a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 0 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 0 1 0-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 0 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 0 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 0 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9c0 .7.4 1.3 1.1 1.6.2.1.5.1.7.1H21a2 2 0 0 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z" /></svg>}
-                        theme={theme}
-                    />
-                </div>
-            </div>
-
-            <div className="m3-toolbar__divider" />
-
-            <div className="m3-toolbar__section">
-                <div className={groupTitleClass}>{t('toolbar.navigateGroup')}</div>
-                <div className={`m3-toolbar__group ${activeTool === 'select' || activeTool === 'pan' ? 'm3-toolbar__group--active' : ''}`}>
-                    <ToolButton
-                        label={t('toolbar.select')}
-                        icon={<svg width={iconSize} height={iconSize} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m4 3 7 17 2.5-7.5L21 10 4 3Z" /><path d="m13 13 6 6" /></svg>}
-                        active={activeTool === 'select'}
-                        onClick={() => setActiveTool('select')}
-                        theme={theme}
-                        tone="accent"
-                    />
-                    <ToolButton
-                        label={t('toolbar.pan')}
-                        icon={
-                            <svg width={iconSize} height={iconSize} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
->>>>>>> Stashed changes
-                        <path d="M6 12V6a2 2 0 1 1 4 0v6" />
-                        <path d="M10 12V5a2 2 0 1 1 4 0v7" />
-                        <path d="M14 12V7a2 2 0 1 1 4 0v7" />
-                        <path d="M18 12v-1a2 2 0 1 1 4 0v3a7 7 0 0 1-7 7h-2a7 7 0 0 1-7-7v-2a2 2 0 1 1 4 0" />
-                    </svg>
-<<<<<<< Updated upstream
-                }
-                active={activeTool === 'pan'}
-                onClick={() => setActiveTool('pan')}
-                theme={theme}
-            />
-            <ToolGroupButton
-                label={t('toolbar.shapes')}
-                activeTool={activeTool}
-                setActiveTool={setActiveTool}
-                items={shapeTools}
-                fallbackIcon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="5" y="5" width="14" height="14" rx="2" /></svg>}
-                theme={theme}
-            />
-            <ToolGroupButton
-                label={t('toolbar.drawingTools')}
-                activeTool={activeTool}
-                setActiveTool={setActiveTool}
-                items={drawingTools}
-                fallbackIcon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17 3a2.8 2.8 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3Z" /></svg>}
-                theme={theme}
-            />
-            <ToolButton
-                label={t('toolbar.text')}
-                icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 7V4h16v3" /><path d="M12 4v16" /><path d="M9 20h6" /></svg>}
-                active={activeTool === 'text'}
-                onClick={() => setActiveTool('text')}
-                theme={theme}
-            />
-
-            <div className={`my-0.5 h-px w-5 ${isDark ? 'bg-white/10' : 'bg-neutral-200'}`} />
-
-            <input
-                type="color"
-                aria-label={t('toolbar.strokeColor')}
-                title={t('toolbar.strokeColor')}
-                value={drawingOptions.strokeColor}
-                onChange={(event) => setDrawingOptions({ ...drawingOptions, strokeColor: event.target.value })}
-                className={`h-7 w-7 cursor-pointer rounded-[12px] border bg-transparent p-0 ${isDark ? 'border-white/10' : 'border-neutral-200'}`}
-            />
-            <input
-                type="range"
-                min="1"
-                max="50"
-                aria-label={t('toolbar.strokeWidth')}
-                title={t('toolbar.strokeWidth')}
-                value={drawingOptions.strokeWidth}
-                onChange={(event) => setDrawingOptions({ ...drawingOptions, strokeWidth: Number(event.target.value) })}
-                className="h-16 w-7 cursor-pointer appearance-none bg-transparent [writing-mode:vertical-lr]"
-            />
-            <span className="text-[10px] text-white/60">{drawingOptions.strokeWidth}</span>
-
-            <div className={`my-0.5 h-px w-5 ${isDark ? 'bg-white/10' : 'bg-neutral-200'}`} />
-=======
-                        }
-                        active={activeTool === 'pan'}
-                        onClick={() => setActiveTool('pan')}
-                        theme={theme}
-                    />
-                </div>
-            </div>
-
-            <div className="m3-toolbar__divider" />
-
-            <div className="m3-toolbar__section">
-                <div className={groupTitleClass}>{t('toolbar.createGroup')}</div>
-                <div className={`m3-toolbar__group ${isShapeActive || isDrawingActive || activeTool === 'text' ? 'm3-toolbar__group--active' : ''}`}>
-                    <ToolGroupButton
-                        label={t('toolbar.shapes')}
-                        activeTool={activeTool}
-                        setActiveTool={setActiveTool}
-                        items={shapeTools}
-                        fallbackIcon={<svg width={iconSize} height={iconSize} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="5" y="5" width="14" height="14" rx="2" /></svg>}
-                        theme={theme}
-                    />
-                    <ToolGroupButton
-                        label={t('toolbar.drawingTools')}
-                        activeTool={activeTool}
-                        setActiveTool={setActiveTool}
-                        items={drawingTools}
-                        fallbackIcon={<svg width={iconSize} height={iconSize} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17 3a2.8 2.8 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3Z" /></svg>}
-                        theme={theme}
-                    />
-                    <ToolButton
-                        label={t('toolbar.text')}
-                        icon={<svg width={iconSize} height={iconSize} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 7V4h16v3" /><path d="M12 4v16" /><path d="M9 20h6" /></svg>}
-                        active={activeTool === 'text'}
-                        onClick={() => setActiveTool('text')}
-                        theme={theme}
-                        tone="accent"
-                    />
-                </div>
-            </div>
-
-            <div className="m3-toolbar__divider" />
-
-            <div className="m3-toolbar__section">
-                <div className={groupTitleClass}>{t('toolbar.strokeGroup')}</div>
-                <div className="m3-toolbar__stroke-panel">
-                    <label className={`m3-toolbar__stroke-swatch ${isDark ? 'm3-toolbar__stroke-swatch--dark' : 'm3-toolbar__stroke-swatch--light'}`}>
-                        <input
-                            type="color"
-                            aria-label={t('toolbar.strokeColor')}
-                            title={t('toolbar.strokeColor')}
-                            value={drawingOptions.strokeColor}
-                            onChange={(event) => setDrawingOptions({ ...drawingOptions, strokeColor: event.target.value })}
-                            className="m3-toolbar__color-input"
-                        />
-                    </label>
-                    <div className="m3-toolbar__stroke-range-wrap">
-                        <input
-                            type="range"
-                            min="1"
-                            max="50"
-                            aria-label={t('toolbar.strokeWidth')}
-                            title={t('toolbar.strokeWidth')}
-                            value={drawingOptions.strokeWidth}
-                            onChange={(event) => setDrawingOptions({ ...drawingOptions, strokeWidth: Number(event.target.value) })}
-                            className={`m3-toolbar__stroke-range ${isDark ? 'm3-toolbar__stroke-range--dark' : 'm3-toolbar__stroke-range--light'}`}
-                        />
-                        <span className="m3-toolbar__stroke-value">{drawingOptions.strokeWidth}</span>
-                    </div>
-                </div>
-            </div>
-
-            <div className="m3-toolbar__divider" />
->>>>>>> Stashed changes
-
->>>>>>> Stashed changes
-            <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                onChange={handleFileChange}
-                className="hidden"
-<<<<<<< Updated upstream
-            />
-
-            <div className="flex items-center gap-2 rounded-[28px] border border-neutral-200/90 bg-white/96 px-3 py-2 shadow-[0_18px_42px_rgba(15,23,42,0.12)] backdrop-blur-xl">
-                {(isCompact ? mobileTools : desktopTools).map(tool => (
-                    <ToolButton
-                        key={tool.id}
-                        label={tool.label}
-                        icon={tool.icon}
-                        active={tool.id === activeTool}
-                        disabled={tool.disabled}
-                        onClick={tool.onClick ?? (() => setActiveTool(tool.id as Tool))}
-                    />
+            {/* 3. 分隔线 */}
+            <div className="w-10 h-px bg-neutral-200"></div>
+            
+            {/* 4-7. 工具区域 */}
+            <div className="flex flex-col items-center gap-2 flex-grow">
+                {/* 4. 基础工具：选择、平移 */}
+                {mainTools.map(tool => (
+                    <ToolButton key={tool.id} label={tool.label} icon={tool.icon} isActive={activeTool === tool.id} onClick={() => setActiveTool(tool.id)} />
                 ))}
 
-                <div className="mx-1 h-8 w-px bg-neutral-200" />
-
-                <label className="inline-flex h-11 w-11 cursor-pointer items-center justify-center rounded-2xl border border-neutral-200 bg-neutral-50">
-                    <input
-                        type="color"
-                        aria-label={t('toolbar.strokeColor')}
-                        title={t('toolbar.strokeColor')}
-                        value={drawingOptions.strokeColor}
-                        onChange={(event) => setDrawingOptions({ ...drawingOptions, strokeColor: event.target.value })}
-                        className="h-7 w-7 cursor-pointer rounded-full border-none bg-transparent p-0"
-                    />
-                </label>
-
-                <div className="inline-flex min-w-[54px] items-center justify-center rounded-2xl border border-neutral-200 bg-neutral-50 px-3 py-2 text-sm font-medium text-neutral-700">
-                    {drawingOptions.strokeWidth}px
-                </div>
-
-                {!isCompact && (
-                    <>
-                        <div className="mx-1 h-8 w-px bg-neutral-200" />
-                        {auxiliaryTools.map(tool => (
-                            <ToolButton
-                                key={tool.id}
-                                label={tool.label}
-                                icon={tool.icon}
-                                disabled={tool.disabled}
-                                onClick={tool.onClick}
-                            />
-                        ))}
-                    </>
-                )}
-            </div>
-=======
-                onChange={(event) => {
-                    const file = event.target.files?.[0];
-                    if (file) {
-                        onUpload(file);
-                    }
-                    event.target.value = '';
-                }}
-            />
-<<<<<<< Updated upstream
-            <ToolButton
-                label={t('toolbar.upload')}
-                onClick={() => fileInputRef.current?.click()}
-                icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 16V4" /><path d="m7 9 5-5 5 5" /><path d="M20 16v3a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-3" /></svg>}
-                theme={theme}
-            />
-            {onAssetsClick && (
-                <ToolButton
-                    label="Assets"
-                    onClick={onAssetsClick}
-                    icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="4" y="4" width="16" height="16" rx="2" /><path d="M4 10h16" /><path d="M10 4v16" /></svg>}
-                    theme={theme}
+                {/* 5. 形状工具组 */}
+                <ToolGroupButton 
+                    activeTool={activeTool} 
+                    setActiveTool={setActiveTool} 
+                    tools={shapeTools} 
+                    groupLabel={t('toolbar.shapes')}
+                    groupIcon={<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>}
                 />
-            )}
-            <ToolButton
-                label={t('toolbar.settings')}
-                onClick={onSettingsClick}
-                icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 0 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 0 1-4 0v-.1a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 0 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 0 1 0-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 0 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 0 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 0 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9c0 .7.4 1.3 1.1 1.6.2.1.5.1.7.1H21a2 2 0 0 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z" /></svg>}
-                theme={theme}
-            />
 
-            <div className={`my-0.5 h-px w-5 ${isDark ? 'bg-white/10' : 'bg-neutral-200'}`} />
+                {/* 6. 绘图工具组 */}
+                <ToolGroupButton 
+                    activeTool={activeTool} 
+                    setActiveTool={setActiveTool} 
+                    tools={drawingTools} 
+                    groupLabel={t('toolbar.drawingTools')}
+                    groupIcon={<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>}
+                />
 
-            <ToolButton
-                label={t('toolbar.undo')}
-                onClick={onUndo}
-                disabled={!canUndo}
-                icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m9 14-5-5 5-5" /><path d="M4 9h10.5A5.5 5.5 0 0 1 20 14.5 5.5 5.5 0 0 1 14.5 20H11" /></svg>}
-                theme={theme}
-            />
-            <ToolButton
-                label={t('toolbar.redo')}
-                onClick={onRedo}
-                disabled={!canRedo}
-                icon={<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m15 14 5-5-5-5" /><path d="M20 9H9.5A5.5 5.5 0 0 0 4 14.5 5.5 5.5 0 0 0 9.5 20H13" /></svg>}
-                theme={theme}
-            />
->>>>>>> Stashed changes
-=======
-            <div className="m3-toolbar__section">
-                <div className={groupTitleClass}>{t('toolbar.historyGroup')}</div>
-                <div className="m3-toolbar__group">
-                    <ToolButton
-                        label={t('toolbar.upload')}
-                        onClick={() => fileInputRef.current?.click()}
-                        icon={<svg width={iconSize} height={iconSize} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 16V4" /><path d="m7 9 5-5 5 5" /><path d="M20 16v3a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1v-3" /></svg>}
-                        theme={theme}
-                    />
-                    <ToolButton
-                        label={t('toolbar.undo')}
-                        onClick={onUndo}
-                        disabled={!canUndo}
-                        icon={<svg width={iconSize} height={iconSize} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m9 14-5-5 5-5" /><path d="M4 9h10.5A5.5 5.5 0 0 1 20 14.5 5.5 5.5 0 0 1 14.5 20H11" /></svg>}
-                        theme={theme}
-                    />
-                    <ToolButton
-                        label={t('toolbar.redo')}
-                        onClick={onRedo}
-                        disabled={!canRedo}
-                        icon={<svg width={iconSize} height={iconSize} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="m15 14 5-5-5-5" /><path d="M20 9H9.5A5.5 5.5 0 0 0 4 14.5 5.5 5.5 0 0 0 9.5 20H13" /></svg>}
-                        theme={theme}
-                    />
-                </div>
+                {/* 7. 其他工具：文本 */}
+                {miscTools.map(tool => (
+                    <ToolButton key={tool.id} label={tool.label} icon={tool.icon} isActive={activeTool === tool.id} onClick={() => setActiveTool(tool.id)} />
+                ))}
+
+                {/* 8. 分隔线 */}
+                <div className="w-10 h-px bg-neutral-200"></div>
+                
+                {/* 9. 颜色选择器 */}
+                <input 
+                    type="color" 
+                    aria-label={t('toolbar.strokeColor')} 
+                    title={t('toolbar.strokeColor')} 
+                    value={drawingOptions.strokeColor} 
+                    onChange={(e) => setDrawingOptions({ ...drawingOptions, strokeColor: e.target.value })} 
+                    className="w-8 h-8 p-0 border border-neutral-300 rounded-md cursor-pointer bg-transparent" 
+                />
+                
+                {/* 10. 笔刷粗细滑块 */}
+                <input 
+                    type="range" 
+                    min="1" 
+                    max="50" 
+                    value={drawingOptions.strokeWidth} 
+                    aria-label={t('toolbar.strokeWidth')} 
+                    title={t('toolbar.strokeWidth')} 
+                    onChange={(e) => setDrawingOptions({ ...drawingOptions, strokeWidth: parseInt(e.target.value, 10) })} 
+                    className="w-10 cursor-pointer" 
+                />
+                
+                {/* 11. 粗细数值显示 */}
+                <span className="text-sm text-neutral-600 w-6 text-center">{drawingOptions.strokeWidth}</span>
+                
+                {/* 12. 分隔线 */}
+                <div className="w-10 h-px bg-neutral-200"></div>
+                
+                {/* 13. 文件上传（隐藏的input + 按钮） */}
+                <input 
+                    type="file" 
+                    ref={fileInputRef} 
+                    onChange={handleFileChange} 
+                    accept="image/*" 
+                    className="hidden" 
+                    aria-label={t('toolbar.upload')} 
+                    title={t('toolbar.upload')} 
+                />
+                <ToolButton 
+                    label={t('toolbar.upload')} 
+                    onClick={handleUploadClick} 
+                    icon={<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>} 
+                />
             </div>
->>>>>>> Stashed changes
+
+            {/* 14. 分隔线 */}
+            <div className="w-10 h-px bg-white/30"></div>
+            
+            {/* 15. 撤销/重做按钮 */}
+            <ToolButton 
+                label={t('toolbar.undo')} 
+                onClick={onUndo} 
+                disabled={!canUndo} 
+                icon={<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 5.5 5.5v0a5.5 5.5 0 0 1-5.5 5.5H11"/></svg>} 
+            />
+            <ToolButton 
+                label={t('toolbar.redo')} 
+                onClick={onRedo} 
+                disabled={!canRedo} 
+                icon={<svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m15 14 5-5-5-5"/><path d="M20 9H9.5A5.5 5.5 0 0 0 4 14.5v0A5.5 5.5 0 0 0 9.5 20H13"/></svg>} 
+            />
         </div>
     );
 };

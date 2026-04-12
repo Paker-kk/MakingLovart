@@ -1,4 +1,4 @@
-﻿
+
 
 
 
@@ -9,11 +9,13 @@ import { Toolbar } from './components/Toolbar';
 import { PromptBar } from './components/PromptBar';
 import { Loader } from './components/Loader';
 import { CanvasSettings } from './components/CanvasSettings';
-<<<<<<< Updated upstream
+import { LayerPanel } from './components/LayerPanel';
 import { LayerPanelMinimizable } from './components/LayerPanelMinimizable';
+import { LayerToggleButton } from './components/LayerToggleButton';
 import { BoardPanel } from './components/BoardPanel';
-import { ProjectMenu } from './components/ProjectMenu';
-import type { Tool, Point, Element, ImageElement, PathElement, ShapeElement, TextElement, ArrowElement, UserEffect, LineElement, WheelAction, GroupElement, Board, VideoElement, AssetLibrary, AssetCategory, AssetItem, UserApiKey, ModelPreference, AIProvider, PromptEnhanceMode, CharacterLockProfile, ChatAttachment } from './types';
+import type { Tool, Point, Element, ImageElement, PathElement, ShapeElement, TextElement, ArrowElement, UserEffect, LineElement, WheelAction, GroupElement, Board, VideoElement, AssetLibrary, AssetCategory, AssetItem, UserApiKey, ModelPreference, AIProvider, PromptEnhanceMode, CharacterLockProfile, WorkspaceMode, ChatAttachment } from './types';
+import { AssetLibraryPanel } from './components/AssetLibraryPanel';
+import { InspirationPanel } from './components/InspirationPanel';
 import { RightPanel } from './components/RightPanel';
 import { AssetAddModal } from './components/AssetAddModal';
 import { loadAssetLibrary, addAsset, removeAsset, renameAsset } from './utils/assetStorage';
@@ -21,42 +23,9 @@ import { editImage, generateImageFromText, generateVideo, setGeminiRuntimeConfig
 import { splitImageByBanana, runBananaImageAgent, setBananaRuntimeConfig } from './services/bananaService';
 import { fileToDataUrl } from './utils/fileUtils';
 import { translations } from './translations';
-=======
-import { SettingsErrorBoundary } from './components/SettingsErrorBoundary';
-import { OnboardingWizard } from './components/OnboardingWizard';
-import { WorkspaceSidebar } from './components/WorkspaceSidebar';
-import type { Tool, Point, Element, ImageElement, PathElement, ShapeElement, TextElement, ArrowElement, UserEffect, LineElement, WheelAction, GroupElement, Board, VideoElement, AssetLibrary, AssetCategory, AssetItem, UserApiKey, ModelPreference, AIProvider, AICapability, PromptEnhanceMode, CharacterLockProfile, GenerationHistoryItem, ThemeMode, ChatAttachment } from './types';
-import { AssetLibraryPanel } from './components/AssetLibraryPanel';
-import { InspirationPanel } from './components/InspirationPanel';
-import { RightPanel } from './components/RightPanel';
-import { AssetAddModal } from './components/AssetAddModal';
-import { loadAssetLibrary, addAsset, removeAsset, renameAsset } from './utils/assetStorage';
-import { loadGenerationHistory, addGenerationHistoryItem } from './utils/generationHistory';
-import { generateImageFromText, generateVideo, setGeminiRuntimeConfig, enhancePromptWithGemini } from './services/geminiService';
-import { splitImageByBanana, runBananaImageAgent, setBananaRuntimeConfig } from './services/bananaService';
-import { editImageWithProvider, enhancePromptWithProvider, generateImageWithProvider, inferProviderFromModel } from './services/aiGateway';
-import { fileToDataUrl } from './utils/fileUtils';
-import { translations } from './translations';
-import { useAPIConfigStore } from './src/store/api-config-store';
-import { useWorkspaceStore } from './src/store/workspace-store';
-import { saveKeysEncrypted, loadKeysDecrypted, clearAllKeyData, migrateLegacyKeys } from './utils/keyVault';
-import type { APIConfig } from './src/types/api-config';
-import { getCompactChromeMetrics } from './utils/uiScale';
-import { NodeWorkflowPage } from './pages/workflow/NodeWorkflowPage';
-import {
-    classifyError as classifyKeyError,
-    handleKeyError,
-    checkCircuitBreaker,
-} from './services/apiKeyManager';
->>>>>>> Stashed changes
+import { useCanvasBridge } from './components/useCanvasBridge';
 
 const generateId = () => `id_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-
-/** 从错误消息中提取 HTTP 状态码（如有） */
-function extractHttpStatus(message: string): number | undefined {
-    const match = message.match(/\b(4\d{2}|5\d{2})\b/);
-    return match ? parseInt(match[1], 10) : undefined;
-}
 
 const getElementBounds = (element: Element, allElements: Element[] = []): { x: number; y: number; width: number; height: number } => {
     if (element.type === 'group') {
@@ -282,10 +251,17 @@ const rasterizeElements = (elementsToRasterize: Exclude<Element, ImageElement | 
                     break;
                  }
                 case 'text': {
+                     const safeText = element.text
+                         .replace(/&/g, '&amp;')
+                         .replace(/</g, '&lt;')
+                         .replace(/>/g, '&gt;')
+                         .replace(/"/g, '&quot;')
+                         .replace(/'/g, '&#39;')
+                         .replace(/\n/g, '<br />');
                      elementSvgString = `
                         <foreignObject x="${element.x + offsetX}" y="${element.y + offsetY}" width="${element.width}" height="${element.height}">
                             <div xmlns="http://www.w3.org/1999/xhtml" style="font-size: ${element.fontSize}px; color: ${element.fontColor}; width: 100%; height: 100%; word-break: break-word; font-family: sans-serif; padding:0; margin:0; line-height: 1.2;">
-                                ${element.text.replace(/\n/g, '<br />')}
+                                ${safeText}
                             </div>
                         </foreignObject>
                      `;
@@ -401,7 +377,6 @@ const DEFAULT_MODEL_PREFS: ModelPreference = {
     agentModel: 'banana-vision-v1',
 };
 
-<<<<<<< Updated upstream
 const IMAGE_MODEL_OPTIONS = ['gemini-2.5-flash-image-preview', 'imagen-4.0-generate-001'];
 const VIDEO_MODEL_OPTIONS = ['veo-2.0-generate-001'];
 
@@ -409,140 +384,12 @@ const App: React.FC = () => {
     const [boards, setBoards] = useState<Board[]>(() => {
         // TODO: Load from localStorage
         return [createNewBoard('Board 1')];
-=======
-// 根据 provider 映射出可选模型列表
-const PROVIDER_MODELS: Record<string, { text: string[]; image: string[]; video: string[] }> = {
-    google:    { text: ['gemini-2.5-pro', 'gemini-2.5-flash'], image: ['gemini-2.5-flash-image', 'imagen-4.0-generate-001'], video: ['veo-2.0-generate-001'] },
-    openai:    { text: ['gpt-4o-mini'], image: ['dall-e-3'], video: [] },
-    anthropic: { text: ['claude-3-5-sonnet'], image: [], video: [] },
-    qwen:      { text: ['qwen-max'], image: [], video: [] },
-    stability: { text: [], image: ['sdxl'], video: [] },
-    banana:    { text: [], image: [], video: [] },
-    runninghub:{ text: [], image: ['runninghub-image'], video: [] },
-};
-// 兜底：当用户没有任何 API Key 时的默认选项（不可用，仅占位）
-const FALLBACK_TEXT_OPTIONS = ['gemini-2.5-pro'];
-const FALLBACK_IMAGE_OPTIONS = ['gemini-2.5-flash-image'];
-const FALLBACK_VIDEO_OPTIONS = ['veo-2.0-generate-001'];
-const BOARDS_STORAGE_KEY = 'boards.v1';
-const ACTIVE_BOARD_STORAGE_KEY = 'boards.activeId.v1';
-
-const THEME_PALETTES = {
-    light: {
-        appBackground: '#f3f5f9',
-        canvasBackground: '#f7f8fb',
-        uiBgColor: 'rgba(255, 255, 255, 0.92)',
-        buttonBgColor: '#111827',
-    },
-    dark: {
-        appBackground: '#0c0f14',
-        canvasBackground: '#11151c',
-        uiBgColor: 'rgba(18, 21, 27, 0.94)',
-        buttonBgColor: '#f3f4f6',
-    },
-} as const;
-
-const inferCapabilitiesByProvider = (provider: AIProvider): AICapability[] => {
-    switch (provider) {
-        case 'google':
-            return ['text', 'image', 'video'];
-        case 'openai':
-            return ['text', 'image'];
-        case 'anthropic':
-        case 'qwen':
-            return ['text'];
-        case 'stability':
-            return ['image'];
-        case 'banana':
-            return ['agent'];
-        case 'runninghub':
-            return ['image'];
-        case 'custom':
-            return ['text', 'image', 'video'];
-        default:
-            return ['text'];
-    }
-};
-
-const normalizeApiKeyEntry = (item: Partial<UserApiKey>): UserApiKey | null => {
-    if (!item || !item.id || !item.provider || !item.key) return null;
-    const customModels = Array.isArray(item.customModels)
-        ? item.customModels.filter((model): model is string => typeof model === 'string' && model.trim().length > 0)
-        : undefined;
-    const runninghub = item.runninghub && typeof item.runninghub === 'object'
-        ? item.runninghub
-        : undefined;
-
-    return {
-        id: item.id,
-        provider: item.provider,
-        capabilities:
-            Array.isArray(item.capabilities) && item.capabilities.length > 0
-                ? item.capabilities
-                : inferCapabilitiesByProvider(item.provider),
-        key: item.key,
-        baseUrl: typeof item.baseUrl === 'string' ? item.baseUrl : undefined,
-        name: typeof item.name === 'string' ? item.name : undefined,
-        isDefault: item.isDefault,
-        status: item.status,
-        customModels,
-        defaultModel: typeof item.defaultModel === 'string' ? item.defaultModel : undefined,
-        runninghub,
-        createdAt: item.createdAt || Date.now(),
-        updatedAt: item.updatedAt || Date.now(),
-    };
-};
-
-const hasCapabilityOverlap = (left: AICapability[], right: AICapability[]) =>
-    left.some(capability => right.includes(capability));
-
-const loadBoardsFromStorage = (): Board[] => {
-    try {
-        const raw = localStorage.getItem(BOARDS_STORAGE_KEY);
-        const parsed = raw ? JSON.parse(raw) : null;
-        if (!Array.isArray(parsed) || parsed.length === 0) {
-            return [createNewBoard('Board 1')];
-        }
-
-        const boards = parsed.filter((board): board is Board => {
-            return !!board && typeof board.id === 'string' && typeof board.name === 'string' && Array.isArray(board.elements);
-        });
-
-        return boards.length > 0 ? boards : [createNewBoard('Board 1')];
-    } catch {
-        return [createNewBoard('Board 1')];
-    }
-};
-
-const App: React.FC = () => {
-    const workspaceMode = useWorkspaceStore(state => state.workspaceMode);
-    const promptScope = useWorkspaceStore(state => state.promptScope);
-    const nodePromptDraft = useWorkspaceStore(state => state.nodePromptDraft);
-    const setWorkspaceMode = useWorkspaceStore(state => state.setWorkspaceMode);
-    const setLastCanvasBoardId = useWorkspaceStore(state => state.setLastCanvasBoardId);
-    const [boards, setBoards] = useState<Board[]>(() => loadBoardsFromStorage());
-    const [activeBoardId, setActiveBoardId] = useState<string>(() => {
-        try {
-            const saved = localStorage.getItem(ACTIVE_BOARD_STORAGE_KEY);
-            return saved || '';
-        } catch {
-            return '';
-        }
->>>>>>> Stashed changes
     });
     const [activeBoardId, setActiveBoardId] = useState<string>(boards[0].id);
 
     const activeBoard = useMemo(() => boards.find(b => b.id === activeBoardId)!, [boards, activeBoardId]);
 
-<<<<<<< Updated upstream
     const { elements, history, historyIndex, panOffset, zoom, canvasBackgroundColor } = activeBoard;
-=======
-    useEffect(() => {
-        setLastCanvasBoardId(activeBoardId || null);
-    }, [activeBoardId, setLastCanvasBoardId]);
-
-    const { elements, history, historyIndex, panOffset, zoom } = activeBoard;
->>>>>>> Stashed changes
 
     const [activeTool, setActiveTool] = useState<Tool>('select');
     const [drawingOptions, setDrawingOptions] = useState({ strokeColor: '#111827', strokeWidth: 5 });
@@ -550,42 +397,26 @@ const App: React.FC = () => {
     const [selectionBox, setSelectionBox] = useState<Rect | null>(null);
     const [prompt, setPrompt] = useState('');
     const [chatAttachments, setChatAttachments] = useState<ChatAttachment[]>([]);
-<<<<<<< Updated upstream
-    // Mentioned canvas elements synced from the prompt editor.
-=======
-    // @ 鐎殿喗娲滈弫銈夊礂閸愵亞顦?id 闁告帗顨夐妴鍐晬閸垺鏆?PromptBar 闁革负鍔庨弫銈夊箣妞嬪骸浠柛鎴ｅ吹閺佹捇骞嬮幇顒€顤呴柛姘湰椤掔偞娼婚崶銊﹂檷闁?
->>>>>>> Stashed changes
+    const [workspaceMode, setWorkspaceMode] = useState<WorkspaceMode>('whiteboard');
+    // @ 引用元素 id 列表（由 PromptBar 在用户点击生成前同步过来）
     const [mentionedElementIds, setMentionedElementIds] = useState<string[]>([]);
     const [isEnhancingPrompt, setIsEnhancingPrompt] = useState(false);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
     const [isSettingsPanelOpen, setIsSettingsPanelOpen] = useState(false);
+    const [isLayerPanelOpen, setIsLayerPanelOpen] = useState(false);
     const [isBoardPanelOpen, setIsBoardPanelOpen] = useState(false);
     const [isLayerMinimized, setIsLayerMinimized] = useState(() => {
         const saved = localStorage.getItem('layerPanelMinimized');
-        if (saved === null) return window.innerWidth <= 1024;
         return saved === 'true';
     });
     const [isInspirationMinimized, setIsInspirationMinimized] = useState(() => {
         const saved = localStorage.getItem('inspirationPanelMinimized');
-        if (saved === null) return true;
         return saved === 'true';
     });
-<<<<<<< Updated upstream
-    const [toolbarLeft, setToolbarLeft] = useState(68); // 宸ュ叿鏍忕殑 left 浣嶇疆
-    const [rightPanelWidth, setRightPanelWidth] = useState(472);
-=======
-    const [toolbarLeft, setToolbarLeft] = useState(68); // 鐎规悶鍎遍崣鍧楀冀韫囨洘鐣?left 濞达絽绉堕悿?
-    const [rightPanelWidth, setRightPanelWidth] = useState(2); // 闁告瑥鍘栭弲鍫曟閵忊剝绶查悗鍦仱濡绢垳鈧妫勭€规娊鏁嶉崼銏℃殢闁?PromptBar 闁告艾鏈鐐烘晸?
->>>>>>> Stashed changes
+    const [toolbarLeft, setToolbarLeft] = useState(68); // 工具栏的 left 位置
+    const [rightPanelWidth, setRightPanelWidth] = useState(2); // 右侧面板实际宽度（用于 PromptBar 同步）
     const [wheelAction, setWheelAction] = useState<WheelAction>('zoom');
-    const promptDockRef = useRef<HTMLDivElement | null>(null);
-    const [promptDockHeight, setPromptDockHeight] = useState(168);
-    const [viewportSize, setViewportSize] = useState(() => ({
-        width: window.innerWidth,
-        height: window.innerHeight,
-    }));
-    const [isCompactLayout, setIsCompactLayout] = useState(() => window.innerWidth <= 1024);
     const [croppingState, setCroppingState] = useState<{ elementId: string; originalElement: ImageElement; cropBox: Rect } | null>(null);
     const [alignmentGuides, setAlignmentGuides] = useState<Guide[]>([]);
     const [contextMenu, setContextMenu] = useState<{ x: number; y: number; elementId: string | null } | null>(null);
@@ -601,41 +432,6 @@ const App: React.FC = () => {
     useEffect(() => {
         localStorage.setItem('inspirationPanelMinimized', isInspirationMinimized.toString());
     }, [isInspirationMinimized]);
-
-    useEffect(() => {
-        const handleResize = () => {
-            setViewportSize({ width: window.innerWidth, height: window.innerHeight });
-            setIsCompactLayout(window.innerWidth <= 1024);
-        };
-        handleResize();
-        window.addEventListener('resize', handleResize, { passive: true });
-        return () => window.removeEventListener('resize', handleResize);
-    }, []);
-
-    const wasCompactRef = useRef(isCompactLayout);
-    useEffect(() => {
-        if (isCompactLayout && !wasCompactRef.current) {
-            setIsLayerMinimized(true);
-            setIsInspirationMinimized(true);
-        }
-        wasCompactRef.current = isCompactLayout;
-    }, [isCompactLayout]);
-
-    useEffect(() => {
-        if (!promptDockRef.current || typeof ResizeObserver === 'undefined') return;
-        const node = promptDockRef.current;
-        const observer = new ResizeObserver((entries) => {
-            const entry = entries[0];
-            if (!entry) return;
-            const nextHeight = Math.ceil(entry.contentRect.height);
-            if (Number.isFinite(nextHeight) && nextHeight > 0) {
-                setPromptDockHeight(nextHeight);
-            }
-        });
-        observer.observe(node);
-        return () => observer.disconnect();
-    }, [croppingState]);
-
     const [editingElement, setEditingElement] = useState<{ id: string; text: string; } | null>(null);
     const [lassoPath, setLassoPath] = useState<Point[] | null>(null);
 
@@ -695,6 +491,7 @@ const App: React.FC = () => {
     const editingTextareaRef = useRef<HTMLTextAreaElement>(null);
     const previousToolRef = useRef<Tool>('select');
     const spacebarDownTime = useRef<number | null>(null);
+    const progressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
     elementsRef.current = elements;
 
     useEffect(() => {
@@ -704,6 +501,12 @@ const App: React.FC = () => {
         setSelectionBox(null);
         setPrompt('');
     }, [activeBoardId]);
+
+    useEffect(() => {
+        return () => {
+            if (progressTimerRef.current) clearTimeout(progressTimerRef.current);
+        };
+    }, []);
     
     useEffect(() => {
         try {
@@ -714,15 +517,18 @@ const App: React.FC = () => {
     }, [userEffects]);
 
     useEffect(() => {
-        localStorage.setItem('userApiKeys.v1', JSON.stringify(userApiKeys));
+        try { localStorage.setItem('userApiKeys.v1', JSON.stringify(userApiKeys)); }
+        catch (e) { console.error('localStorage quota exceeded (userApiKeys)', e); }
     }, [userApiKeys]);
 
     useEffect(() => {
-        localStorage.setItem('modelPreference.v1', JSON.stringify(modelPreference));
+        try { localStorage.setItem('modelPreference.v1', JSON.stringify(modelPreference)); }
+        catch (e) { console.error('localStorage quota exceeded (modelPreference)', e); }
     }, [modelPreference]);
 
     useEffect(() => {
-        localStorage.setItem('characterLocks.v1', JSON.stringify(characterLocks));
+        try { localStorage.setItem('characterLocks.v1', JSON.stringify(characterLocks)); }
+        catch (e) { console.error('localStorage quota exceeded (characterLocks)', e); }
     }, [characterLocks]);
 
     useEffect(() => {
@@ -744,68 +550,13 @@ const App: React.FC = () => {
         return byProvider.find(key => key.isDefault) || byProvider[0];
     }, [userApiKeys]);
 
-    const getCandidateApiKeys = useCallback((capability: AICapability, provider?: AIProvider) => {
-        const matches = userApiKeys.filter(key => {
-            const capabilities = key.capabilities?.length ? key.capabilities : inferCapabilitiesByProvider(key.provider);
-            return capabilities.includes(capability) && (!provider || key.provider === provider);
-        });
-
-        return matches.sort((left, right) => {
-            if (!!left.isDefault === !!right.isDefault) return 0;
-            return left.isDefault ? -1 : 1;
-        });
-    }, [userApiKeys]);
-
-    const withApiKeyFallback = useCallback(async <T,>(
-        keys: UserApiKey[],
-        run: (key?: UserApiKey) => Promise<T>,
-    ): Promise<T> => {
-        if (keys.length === 0) {
-            return run(undefined);
-        }
-
-        // 熔断检查：短时间内大量配额耗尽 → 直接拒绝
-        if (checkCircuitBreaker()) {
-            throw new Error('熔断器已触发：短时间内大量 API 配额耗尽错误，请稍后再试');
-        }
-
-        let lastError: unknown;
-        for (let index = 0; index < keys.length; index += 1) {
-            const key = keys[index];
-            try {
-                return await run(key);
-            } catch (error) {
-                lastError = error;
-                const msg = error instanceof Error ? error.message : String(error || '');
-
-                // 通过三级容错分类错误
-                const httpStatus = extractHttpStatus(msg);
-                const category = classifyKeyError(httpStatus, undefined, msg);
-                const { shouldRetry, circuitBroken } = handleKeyError(
-                    key.key || '',
-                    category,
-                    msg,
-                );
-
-                if (circuitBroken) {
-                    throw new Error('熔断器已触发：短时间内大量 API 配额耗尽错误，请稍后再试');
-                }
-
-                if (index === keys.length - 1 || !shouldRetry) {
-                    throw error;
-                }
-                console.warn(`[API Fallback] ${key.name || key.provider} failed (${category}), retrying with next key.`, error);
-            }
-        }
-
-        throw lastError instanceof Error ? lastError : new Error('All candidate API keys failed.');
-    }, []);
-
     useEffect(() => {
         const googleKey = getDefaultKeyByProvider('google');
         const bananaKey = getDefaultKeyByProvider('banana');
         setGeminiRuntimeConfig({
-            apiKey: googleKey?.key,
+            textApiKey: googleKey?.key,
+            imageApiKey: googleKey?.key,
+            videoApiKey: googleKey?.key,
             textModel: modelPreference.textModel,
             imageModel: modelPreference.imageModel.startsWith('gemini') ? modelPreference.imageModel : undefined,
             textToImageModel: modelPreference.imageModel.startsWith('imagen') ? modelPreference.imageModel : undefined,
@@ -869,10 +620,10 @@ const App: React.FC = () => {
 
     const handleLockCharacterFromSelection = useCallback((name?: string) => {
         if (!selectedSingleImage) {
-            setError('Please select one image before locking a character.');
+            setError('请选择一张图片后再锁定角色。');
             return;
         }
-        const lockName = name?.trim() || selectedSingleImage.name || `Character ${characterLocks.length + 1}`;
+        const lockName = name?.trim() || selectedSingleImage.name || `角色 ${characterLocks.length + 1}`;
         const descriptor = [
             `Character lock: ${lockName}.`,
             'Keep face, hairstyle, costume, body shape, and age consistent across all shots.',
@@ -901,23 +652,11 @@ const App: React.FC = () => {
     }) => {
         setIsEnhancingPrompt(true);
         try {
-<<<<<<< Updated upstream
             return await enhancePromptWithGemini(payload);
         } finally {
             setIsEnhancingPrompt(false);
         }
     }, []);
-=======
-            const provider = inferProviderFromModel(modelPreference.textModel);
-            const candidateKeys = getCandidateApiKeys('text', provider);
-            return await withApiKeyFallback(candidateKeys, (key) =>
-                enhancePromptWithProvider(payload, modelPreference.textModel, key)
-            );
-        } finally {
-            setIsEnhancingPrompt(false);
-        }
-    }, [getCandidateApiKeys, modelPreference.textModel, withApiKeyFallback]);
->>>>>>> Stashed changes
 
     const handleSetActiveCharacterLock = useCallback((id: string | null) => {
         setActiveCharacterLockId(id);
@@ -934,6 +673,15 @@ const App: React.FC = () => {
         });
     }, []);
 
+    const handleAddAttachmentFromCanvas = useCallback((payload: { id: string; name?: string; href: string; mimeType: string }) => {
+        addChatAttachment({
+            name: payload.name || `Canvas ${payload.id.slice(-4)}`,
+            href: payload.href,
+            mimeType: payload.mimeType,
+            source: 'canvas',
+        });
+    }, [addChatAttachment]);
+
     const handleAddAttachmentFiles = useCallback(async (files: FileList | File[]) => {
         const list = Array.from(files).filter(file => file.type.startsWith('image/'));
         if (list.length === 0) return;
@@ -948,7 +696,7 @@ const App: React.FC = () => {
                 });
             });
         } catch (error) {
-            const message = error instanceof Error ? error.message : 'Attachment upload failed.';
+            const message = error instanceof Error ? error.message : '附件上传失败。';
             setError(message);
         }
     }, [addChatAttachment]);
@@ -1042,8 +790,21 @@ const App: React.FC = () => {
         });
     }, [activeBoardId]);
 
+    // ─── MCP Canvas Bridge (Claude Code ↔ Canvas) ──────
+    const { connected: mcpBridgeConnected } = useCanvasBridge({
+        elements,
+        boards,
+        activeBoardId,
+        setElements,
+        updateActiveBoard,
+        setBoards,
+        setActiveBoardId,
+        createNewBoard,
+        generateId,
+    });
+
     // Handle drop from AssetLibraryPanel (after commitAction and getCanvasPoint are defined)
-    const handleAssetDropRef = useRef<(e: React.DragEvent) => void>();
+    const handleAssetDropRef = useRef<(e: React.DragEvent) => void>(undefined);
     handleAssetDropRef.current = (e: React.DragEvent) => {
         const payload = e.dataTransfer.getData('text/plain');
         try {
@@ -1860,7 +1621,7 @@ const App: React.FC = () => {
         try {
             setIsLoading(true);
             setError(null);
-            setProgressMessage('BANANA is analyzing the image and splitting layers...');
+            setProgressMessage('BANANA 正在识别图片并拆分图层...');
 
             const layers = await splitImageByBanana({
                 href: element.href,
@@ -1929,16 +1690,17 @@ const App: React.FC = () => {
 
             if (insertedIds.length > 0) {
                 setSelectedElementIds(insertedIds);
-                setProgressMessage(`BANANA split ${insertedIds.length} layers.`);
+                setProgressMessage(`BANANA 已拆分 ${insertedIds.length} 个图层`);
             } else {
                 setProgressMessage('');
             }
         } catch (err) {
             const error = err as Error;
-            setError(`BANANA layer split failed: ${error.message}`);
+            setError(`BANANA 拆层失败：${error.message}`);
         } finally {
             setIsLoading(false);
-            setTimeout(() => setProgressMessage(''), 1200);
+            if (progressTimerRef.current) clearTimeout(progressTimerRef.current);
+            progressTimerRef.current = setTimeout(() => setProgressMessage(''), 1200);
         }
     };
 
@@ -1946,24 +1708,21 @@ const App: React.FC = () => {
         try {
             setIsLoading(true);
             setError(null);
-<<<<<<< Updated upstream
-            setProgressMessage('BANANA Agent 姝ｅ湪杩涜楂樻竻鏀惧ぇ...');
-=======
-            setProgressMessage('Upscaling image...');
->>>>>>> Stashed changes
+            setProgressMessage('BANANA Agent 正在进行高清放大...');
             const result = await runBananaImageAgent(
                 { href: element.href, mimeType: element.mimeType },
                 'upscale',
                 { scale: 2 }
             );
             await insertImageAgentResult(element, result.dataUrl, 'Upscaled x2', 2, result.mimeType);
-            setProgressMessage('楂樻竻鏀惧ぇ瀹屾垚');
+            setProgressMessage('高清放大完成');
         } catch (err) {
             const error = err as Error;
-            setError(`BANANA 楂樻竻鏀惧ぇ澶辫触锛?{error.message}`);
+            setError(`BANANA 高清放大失败：${error.message}`);
         } finally {
             setIsLoading(false);
-            setTimeout(() => setProgressMessage(''), 1200);
+            if (progressTimerRef.current) clearTimeout(progressTimerRef.current);
+            progressTimerRef.current = setTimeout(() => setProgressMessage(''), 1200);
         }
     };
 
@@ -1971,23 +1730,20 @@ const App: React.FC = () => {
         try {
             setIsLoading(true);
             setError(null);
-<<<<<<< Updated upstream
-            setProgressMessage('BANANA Agent 姝ｅ湪鍘婚櫎鑳屾櫙...');
-=======
-            setProgressMessage('BANANA Agent 婵繐绲藉﹢顏堝储婵犳碍鐝熼柤鍐叉湰濞?..');
->>>>>>> Stashed changes
+            setProgressMessage('BANANA Agent 正在去除背景...');
             const result = await runBananaImageAgent(
                 { href: element.href, mimeType: element.mimeType },
                 'remove-background'
             );
             await insertImageAgentResult(element, result.dataUrl, 'Background Removed', undefined, result.mimeType);
-            setProgressMessage('Background removal completed.');
+            setProgressMessage('去背景完成');
         } catch (err) {
             const error = err as Error;
-            setError(`BANANA background removal failed: ${error.message}`);
+            setError(`BANANA 去背景失败：${error.message}`);
         } finally {
             setIsLoading(false);
-            setTimeout(() => setProgressMessage(''), 1200);
+            if (progressTimerRef.current) clearTimeout(progressTimerRef.current);
+            progressTimerRef.current = setTimeout(() => setProgressMessage(''), 1200);
         }
     };
 
@@ -2072,45 +1828,8 @@ const App: React.FC = () => {
     }, [editingElement?.text, setElements]);
 
 
-<<<<<<< Updated upstream
     const handleGenerate = async (promptOverride?: string) => {
         const rawPrompt = (promptOverride ?? prompt).trim();
-=======
-        // 按照 prompt 中 @label 出现的位置排序
-        const mentionOrder: { element: ImageElement; index: number }[] = [];
-        for (const el of mentionedImages) {
-            // 尝试匹配 @name 或 @label（CanvasMentionExtension 输出的格式）
-            const escapedName = (el.name || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            const regex = new RegExp(`@${escapedName}\\b`, 'i');
-            const match = rawPrompt.match(regex);
-            mentionOrder.push({ element: el, index: match ? match.index! : Infinity });
-        }
-        mentionOrder.sort((a, b) => a.index - b.index);
-
-        // 替换 prompt 中的 @label → [参考图N]
-        let processedPrompt = rawPrompt;
-        const orderedImages: { href: string; mimeType: string }[] = [];
-        mentionOrder.forEach(({ element }, idx) => {
-            const escapedName = (element.name || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-            const regex = new RegExp(`@${escapedName}\\b`, 'gi');
-            processedPrompt = processedPrompt.replace(regex, `[参考图${idx + 1}]`);
-            orderedImages.push({ href: element.href, mimeType: element.mimeType });
-        });
-
-        // 如果有多张参考图，在 prompt 前添加说明
-        if (orderedImages.length > 1) {
-            const mapping = orderedImages.map((_, i) => `[参考图${i + 1}]`).join('、');
-            processedPrompt = `以下提示词中包含 ${mapping} 分别对应按顺序传入的参考图片。\n${processedPrompt}`;
-        }
-
-        return { prompt: processedPrompt, orderedMentionImages: orderedImages };
-    }, []);
-
-
-    const handleGenerate = async (promptOverride?: string, source: 'prompt' | 'right' = 'prompt') => {
-        const sharedPrompt = promptScope === 'node' && nodePromptDraft.trim() ? nodePromptDraft : prompt;
-        let rawPrompt = (promptOverride ?? sharedPrompt).trim();
->>>>>>> Stashed changes
         if (!rawPrompt) {
             setError('Please enter a prompt.');
             return;
@@ -2130,147 +1849,7 @@ const App: React.FC = () => {
         const characterReferenceImages = activeCharacterLock
             ? [{ href: activeCharacterLock.referenceImage, mimeType: getMimeFromDataUrl(activeCharacterLock.referenceImage) }]
             : [];
-<<<<<<< Updated upstream
         const attachmentReferenceImages = chatAttachments.map(item => ({ href: item.href, mimeType: item.mimeType }));
-=======
-        const activeAttachments = source === 'right' ? chatAttachments : promptAttachments;
-        const attachmentReferenceImages = activeAttachments.map(item => ({ href: item.href, mimeType: item.mimeType }));
-        const imageProvider = inferProviderFromModel(modelPreference.imageModel);
-        const videoProvider = inferProviderFromModel(modelPreference.videoModel);
-        // 跨全部候选 key 检测能力 — 只要有任一候选 key 配置了对应 App ID 就视为支持
-        const runninghubCandidateKeys = imageProvider === 'runninghub' ? getCandidateApiKeys('image', 'runninghub') : [];
-        const supportsReferenceEditing = imageProvider === 'google'
-            || (imageProvider === 'runninghub' && runninghubCandidateKeys.some(k => !!k.runninghub?.imageToImageAppId));
-        const supportsMaskEditing = imageProvider === 'google'
-            || (imageProvider === 'runninghub' && runninghubCandidateKeys.some(k => !!k.runninghub?.inpaintAppId));
-        const referenceEditingErrorMessage = imageProvider === 'runninghub'
-            ? 'RunningHub 图生图需要先在设置里填写图生图 App ID。当前如果只配置了文生图，则请移除参考图或切换到纯文生图模式。'
-            : '当前图片模型不支持基于白板的编辑或合成。请切换到 Gemini 或 Imagen 图片模型。';
-        const maskEditingErrorMessage = imageProvider === 'runninghub'
-            ? 'RunningHub 局部重绘需要先在设置里填写局部重绘 App ID 和遮罩参数名。'
-            : referenceEditingErrorMessage;
-        const imageOutputName = generationMode === 'keyframe' ? 'Keyframe' : 'Generated Image';
-
-        /**
-         * ======== 首尾帧动画模式 (Keyframe Mode) ========
-         *
-         * 【功能】用户选中或 @引用一张起始帧图片，Veo 2.0 会基于该图片
-         *        生成一段平滑的过渡动画视频并放置到画布上。
-         *
-         * 【参考图优先级】选中图片 > @引用图片
-         * 【输出】VideoElement（blob URL），放置在画布中心
-         *
-         * 【限制】Veo API 当前仅支持单张参考图作为起始帧，
-         *        如有两张以上参考图会在提示词中描述过渡意图。
-         */
-        if (generationMode === 'keyframe') {
-            try {
-                // 前置检查：首尾帧动画仅支持 Google Veo 模型
-                if (videoProvider !== 'google') {
-                    throw new Error('首尾帧动画目前仅支持 Google Veo 模型，请先配置 Google 视频 API Key。');
-                }
-
-                // 收集参考帧图片：优先选中的 → 然后 @引用的
-                const mentionedImages = mentionedElementIds
-                    .map(id => elements.find(el => el.id === id))
-                    .filter((el): el is ImageElement => !!el && el.type === 'image');
-                const selectedImages = elements
-                    .filter(el => selectedElementIds.includes(el.id) && el.type === 'image') as ImageElement[];
-                const allFrameRefs = [...selectedImages, ...mentionedImages];
-
-                // 至少需要 1 张参考图作为起始帧
-                if (allFrameRefs.length < 1) {
-                    setError('首尾帧模式至少需要 1 张参考图（选中或 @引用画布图片）作为起始帧。');
-                    setIsLoading(false);
-                    return;
-                }
-
-                // 取第一张图片作为 Veo 的 image 参数（API 只接受单张）
-                const startFrame = allFrameRefs[0];
-                // 如有 ≥2 张参考图，在提示词中描述"从首帧过渡到尾帧"
-                const keyframePrompt = allFrameRefs.length >= 2
-                    ? `Animate a smooth cinematic transition from the first frame to the second frame. ${effectivePrompt}`
-                    : `Animate this image with smooth motion. ${effectivePrompt}`;
-
-                setProgressMessage('正在生成首尾帧过渡动画...');
-                const candidateKeys = getCandidateApiKeys('video', videoProvider);
-                const { videoBlob, mimeType } = await withApiKeyFallback(
-                    candidateKeys,
-                    (key) => generateVideo(
-                        keyframePrompt,
-                        videoAspectRatio,
-                        (message) => setProgressMessage(message),
-                        { href: startFrame.href, mimeType: startFrame.mimeType },
-                        key?.key,
-                    )
-                );
-
-                // 将视频 Blob 转为 URL 并获取尺寸元数据
-                setProgressMessage('处理视频中...');
-                const videoUrl = URL.createObjectURL(videoBlob);
-                const video = document.createElement('video');
-
-                video.onloadedmetadata = () => {
-                    if (!svgRef.current) return;
-
-                    // 限制最大尺寸 800px 以免画布元素过大
-                    let newWidth = video.videoWidth;
-                    let newHeight = video.videoHeight;
-                    const MAX_DIM = 800;
-                    if (newWidth > MAX_DIM || newHeight > MAX_DIM) {
-                        const ratio = newWidth / newHeight;
-                        if (ratio > 1) { newWidth = MAX_DIM; newHeight = MAX_DIM / ratio; }
-                        else { newHeight = MAX_DIM; newWidth = MAX_DIM * ratio; }
-                    }
-
-                    // 放置到画布可视区域中心
-                    const svgBounds = svgRef.current!.getBoundingClientRect();
-                    const screenCenter = { x: svgBounds.left + svgBounds.width / 2, y: svgBounds.top + svgBounds.height / 2 };
-                    const canvasPoint = getCanvasPoint(screenCenter.x, screenCenter.y);
-
-                    const newVideoElement: VideoElement = {
-                        id: generateId(), type: 'video', name: 'Keyframe Animation',
-                        x: canvasPoint.x - (newWidth / 2), y: canvasPoint.y - (newHeight / 2),
-                        width: newWidth, height: newHeight,
-                        href: videoUrl, mimeType,
-                    };
-                    commitAction(prev => [...prev, newVideoElement]);
-                    setSelectedElementIds([newVideoElement.id]);
-
-                    // 截取视频第一帧作为缩略图保存到历史记录
-                    try {
-                        const canvas = document.createElement('canvas');
-                        canvas.width = video.videoWidth;
-                        canvas.height = video.videoHeight;
-                        const ctx = canvas.getContext('2d');
-                        if (ctx) {
-                            ctx.drawImage(video, 0, 0);
-                            const thumbnailUrl = canvas.toDataURL('image/png');
-                            saveGenerationToHistory({
-                                name: 'Keyframe Animation',
-                                dataUrl: thumbnailUrl,
-                                mimeType: 'image/png',
-                                width: video.videoWidth,
-                                height: video.videoHeight,
-                                prompt: effectivePrompt,
-                                mediaType: 'video',
-                            });
-                        }
-                    } catch { /* 缩略图失败不影响主流程 */ }
-
-                    setIsLoading(false);
-                };
-                video.onerror = () => { setError('无法加载生成的关键帧视频。'); setIsLoading(false); };
-                video.src = videoUrl;
-            } catch (err) {
-                const error = err as Error;
-                setError(`首尾帧动画生成失败: ${error.message}`);
-                console.error('Keyframe generation failed:', error);
-                setIsLoading(false);
-            }
-            return;
-        }
->>>>>>> Stashed changes
 
         if (generationMode === 'video') {
             try {
@@ -2289,16 +1868,11 @@ const App: React.FC = () => {
                     return;
                 }
                 
-                const candidateKeys = getCandidateApiKeys('video', videoProvider);
-                const { videoBlob, mimeType } = await withApiKeyFallback(
-                    candidateKeys,
-                    (key) => generateVideo(
-                        effectivePrompt,
-                        videoAspectRatio,
-                        (message) => setProgressMessage(message),
-                        baseVideoReference,
-                        key?.key,
-                    )
+                const { videoBlob, mimeType } = await generateVideo(
+                    effectivePrompt, 
+                    videoAspectRatio, 
+                    (message) => setProgressMessage(message), 
+                    baseVideoReference
                 );
 
                 setProgressMessage('Processing video...');
@@ -2363,45 +1937,24 @@ const App: React.FC = () => {
         try {
             const isEditing = selectedElementIds.length > 0;
 
-<<<<<<< Updated upstream
-            // Collect @mention reference images (鍙彇鍥剧墖绫诲厓绱狅紝鎺掗櫎宸插湪 selection 涓殑)
-=======
-            // Collect @mention reference images (闁告瑯浜滆ぐ鍥炊閸撗冾暬缂侇偉顕ч崢鎾舵閻欏懐绀夐柟鐑樺浮濞呭骸顔忛幓鎺撹含 selection 濞戞搩鍘惧▓?
->>>>>>> Stashed changes
+            // Collect @mention reference images (只取图片类元素，排除已在 selection 中的)
             const mentionedImageElements = mentionedElementIds
                 .map(id => elements.find(el => el.id === id))
                 .filter((el): el is ImageElement => !!el && el.type === 'image' && !selectedElementIds.includes(el.id));
 
             if (isEditing) {
-<<<<<<< Updated upstream
-=======
-                if (!supportsReferenceEditing) {
-                    setError(referenceEditingErrorMessage);
-                    return;
-                }
->>>>>>> Stashed changes
                 const selectedElements = elements.filter(el => selectedElementIds.includes(el.id));
                 const imageElements = selectedElements.filter(el => el.type === 'image') as ImageElement[];
                 const maskPaths = selectedElements.filter(el => el.type === 'path' && el.strokeOpacity && el.strokeOpacity < 1) as PathElement[];
 
                 // Inpainting logic: selection is ONLY one image and one or more mask paths
                 if (imageElements.length === 1 && maskPaths.length > 0 && selectedElements.length === (1 + maskPaths.length)) {
-                    if (!supportsMaskEditing) {
-                        setError(maskEditingErrorMessage);
-                        return;
-                    }
                     const baseImage = imageElements[0];
                     const maskData = await rasterizeMask(maskPaths, baseImage);
-                    const candidateKeys = getCandidateApiKeys('image', imageProvider);
-                    const result = await withApiKeyFallback(
-                        candidateKeys,
-                        (key) => editImageWithProvider(
-                            [{ href: baseImage.href, mimeType: baseImage.mimeType }],
-                            effectivePrompt,
-                            modelPreference.imageModel,
-                            { href: maskData.href, mimeType: maskData.mimeType },
-                            key,
-                        )
+                    const result = await editImage(
+                        [{ href: baseImage.href, mimeType: baseImage.mimeType }],
+                        effectivePrompt,
+                        { href: maskData.href, mimeType: maskData.mimeType }
                     );
                     
                     if (result.newImageBase64 && result.newImageMimeType) {
@@ -2442,26 +1995,11 @@ const App: React.FC = () => {
                 });
                 const imagesToProcess = await Promise.all(imagePromises);
 
-<<<<<<< Updated upstream
                 // Append @mentioned reference images
                 const mentionRefs = mentionedImageElements.map(el => ({ href: el.href, mimeType: el.mimeType }));
                 const result = await editImage(
                     [...imagesToProcess, ...mentionRefs, ...attachmentReferenceImages, ...characterReferenceImages],
                     effectivePrompt
-=======
-                // Append @mentioned reference images — 按 prompt 中出现顺序排列
-                const { prompt: mentionPrompt, orderedMentionImages } = buildMentionAwarePrompt(effectivePrompt, mentionedImageElements);
-                const candidateKeys = getCandidateApiKeys('image', imageProvider);
-                const result = await withApiKeyFallback(
-                    candidateKeys,
-                    (key) => editImageWithProvider(
-                        [...imagesToProcess, ...orderedMentionImages, ...attachmentReferenceImages, ...characterReferenceImages],
-                        mentionPrompt,
-                        modelPreference.imageModel,
-                        undefined,
-                        key,
-                    )
->>>>>>> Stashed changes
                 );
 
                 if (result.newImageBase64 && result.newImageMimeType) {
@@ -2494,33 +2032,10 @@ const App: React.FC = () => {
                 }
 
             } else if (mentionedImageElements.length > 0) {
-<<<<<<< Updated upstream
-                // No canvas selection, but user @mentioned image elements 鈫?use editImage as reference-guided generation
-=======
-                if (!supportsReferenceEditing) {
-                    setError(referenceEditingErrorMessage);
-                    return;
-                }
-                // No canvas selection, but user @mentioned image elements 闁?use editImage as reference-guided generation
->>>>>>> Stashed changes
+                // No canvas selection, but user @mentioned image elements → use editImage as reference-guided generation
                 setProgressMessage('Generating with reference images...');
-<<<<<<< Updated upstream
                 const mentionRefs = mentionedImageElements.map(el => ({ href: el.href, mimeType: el.mimeType }));
                 const result = await editImage([...mentionRefs, ...attachmentReferenceImages, ...characterReferenceImages], effectivePrompt);
-=======
-                const { prompt: mentionPrompt2, orderedMentionImages: orderedRefs } = buildMentionAwarePrompt(effectivePrompt, mentionedImageElements);
-                const candidateKeys = getCandidateApiKeys('image', imageProvider);
-                const result = await withApiKeyFallback(
-                    candidateKeys,
-                    (key) => editImageWithProvider(
-                        [...orderedRefs, ...attachmentReferenceImages, ...characterReferenceImages],
-                        mentionPrompt2,
-                        modelPreference.imageModel,
-                        undefined,
-                        key,
-                    )
-                );
->>>>>>> Stashed changes
 
                 if (result.newImageBase64 && result.newImageMimeType) {
                     const { newImageBase64, newImageMimeType } = result;
@@ -2549,30 +2064,9 @@ const App: React.FC = () => {
             } else {
                 // Generate from scratch
                 const baseRefs = [...attachmentReferenceImages, ...characterReferenceImages];
-<<<<<<< Updated upstream
                 const result = baseRefs.length > 0
                     ? await editImage(baseRefs, effectivePrompt)
                     : await generateImageFromText(effectivePrompt);
-=======
-                if (baseRefs.length > 0 && !supportsReferenceEditing) {
-                    setError(referenceEditingErrorMessage);
-                    return;
-                }
-                const candidateKeys = getCandidateApiKeys('image', imageProvider);
-                const result = baseRefs.length > 0
-                    ? await withApiKeyFallback(
-                        candidateKeys,
-                        (key) => editImageWithProvider(baseRefs, effectivePrompt, modelPreference.imageModel, undefined, key)
-                    )
-                    : await withApiKeyFallback(
-                        candidateKeys,
-                        (key) => generateImageWithProvider(
-                            effectivePrompt,
-                            modelPreference.imageModel,
-                            key,
-                        )
-                    );
->>>>>>> Stashed changes
 
                 if (result.newImageBase64 && result.newImageMimeType) {
                     const { newImageBase64, newImageMimeType } = result;
@@ -2615,6 +2109,20 @@ const App: React.FC = () => {
         }
     };
 
+    // Node workflow removed — canvas-only mode
+
+    const handleCanvasImageDragStart = useCallback((image: ImageElement, e: React.DragEvent<SVGGElement>) => {
+        const payload = {
+            id: image.id,
+            name: image.name,
+            href: image.href,
+            mimeType: image.mimeType,
+        };
+        e.dataTransfer.setData('application/x-canvas-image', JSON.stringify(payload));
+        e.dataTransfer.setData('text/plain', image.name || image.id);
+        e.dataTransfer.effectAllowed = 'copy';
+    }, []);
+    
     const handleDragOver = useCallback((e: React.DragEvent) => { e.preventDefault(); }, []);
     const handleDrop = useCallback((e: React.DragEvent) => { 
         e.preventDefault(); 
@@ -2626,7 +2134,7 @@ const App: React.FC = () => {
     const handlePropertyChange = (elementId: string, updates: Partial<Element>) => {
         commitAction(prev => prev.map(el => {
             if (el.id === elementId) {
-                 return { ...el, ...updates };
+                 return { ...el, ...updates } as Element;
             }
             return el;
         }));
@@ -2864,10 +2372,6 @@ const App: React.FC = () => {
 
     const isSelectionActive = selectedElementIds.length > 0;
     const singleSelectedElement = selectedElementIds.length === 1 ? elements.find(el => el.id === selectedElementIds[0]) : null;
-    const selectedCanvasElements = useMemo(
-        () => elements.filter(el => selectedElementIds.includes(el.id)),
-        [elements, selectedElementIds]
-    );
 
     let cursor = 'default';
     if (croppingState) cursor = 'default';
@@ -2907,13 +2411,6 @@ const App: React.FC = () => {
     const handleRenameBoard = (boardId: string, name: string) => {
         setBoards(prev => prev.map(b => b.id === boardId ? { ...b, name } : b));
     };
-
-    const handleDeleteCurrentBoard = useCallback(() => {
-        if (boards.length <= 1) return;
-        if (window.confirm('鍒犻櫎褰撳墠椤圭洰鍚庝笉鍙仮澶嶏紝纭畾缁х画鍚楋紵')) {
-            handleDeleteBoard(activeBoardId);
-        }
-    }, [activeBoardId, boards.length]);
 
     const handleCanvasBackgroundColorChange = (color: string) => {
         updateActiveBoard(b => ({ ...b, canvasBackgroundColor: color }));
@@ -2965,172 +2462,8 @@ const App: React.FC = () => {
         return `data:image/svg+xml;base64,${btoa(unescape(encodeURIComponent(fullSvg)))}`;
     }, []);
 
-<<<<<<< Updated upstream
-    const boardThumbnails = useMemo(() => {
-        if (!isBoardPanelOpen) return {} as Record<string, string>;
-        const next: Record<string, string> = {};
-        boards.forEach(board => {
-            next[board.id] = generateBoardThumbnail(board.elements, board.canvasBackgroundColor);
-        });
-        return next;
-    }, [boards, isBoardPanelOpen, generateBoardThumbnail]);
-
-    const viewportWorldRect = useMemo(() => {
-        const overscan = 320 / Math.max(zoom, 0.01);
-        const worldLeft = -panOffset.x / zoom - overscan;
-        const worldTop = -panOffset.y / zoom - overscan;
-        const worldWidth = viewportSize.width / zoom + overscan * 2;
-        const worldHeight = viewportSize.height / zoom + overscan * 2;
-        return { x: worldLeft, y: worldTop, width: worldWidth, height: worldHeight };
-    }, [panOffset.x, panOffset.y, zoom, viewportSize.height, viewportSize.width]);
-
-    const renderElements = useMemo(() => {
-        const viewportRight = viewportWorldRect.x + viewportWorldRect.width;
-        const viewportBottom = viewportWorldRect.y + viewportWorldRect.height;
-
-        return elements.filter(el => {
-            if (!isElementVisible(el, elements)) return false;
-
-            if (
-                selectedElementIds.includes(el.id) ||
-                editingElement?.id === el.id ||
-                croppingState?.elementId === el.id
-            ) {
-                return true;
-            }
-
-            const bounds = getElementBounds(el, elements);
-            const right = bounds.x + bounds.width;
-            const bottom = bounds.y + bounds.height;
-
-            return (
-                right >= viewportWorldRect.x &&
-                bottom >= viewportWorldRect.y &&
-                bounds.x <= viewportRight &&
-                bounds.y <= viewportBottom
-            );
-        });
-    }, [elements, selectedElementIds, editingElement?.id, croppingState?.elementId, viewportWorldRect, isElementVisible]);
-
-    const promptBottomPadding = isCompactLayout ? 10 : 0;
-    const promptHeightForLayout = croppingState || !isCompactLayout ? 0 : promptDockHeight;
-    const compactToolbarBottomInset = croppingState ? 12 : Math.max(112, promptHeightForLayout + 14);
-    const compactPanelBottomInset = croppingState ? 8 : Math.max(8, promptHeightForLayout + 12);
-    const isLeftRailExpanded = isCompactLayout ? (!isLayerMinimized || isBoardPanelOpen) : false;
-    const desktopToolbarBottomInset = 12;
-    const desktopCanvasLeftInset = !isLayerMinimized ? 336 : 0;
-    const desktopCanvasRightInset = !isInspirationMinimized ? rightPanelWidth : 0;
-    const desktopLeftSafeInset = isCompactLayout
-        ? (isLeftRailExpanded ? 288 : Math.max(toolbarLeft + 74, 108))
-        : desktopCanvasLeftInset + 18;
-    const desktopRightSafeInset = isCompactLayout
-        ? rightPanelWidth + 14
-        : desktopCanvasRightInset + 18;
-    const projectMenuLeft = isCompactLayout ? 16 : desktopCanvasLeftInset + 14;
-    const canvasBottomInset = croppingState
-        ? 0
-        : (isCompactLayout
-            ? Math.max(156, promptHeightForLayout + 20)
-            : 112);
-
-    const handleToggleLayerPanel = useCallback(() => {
-        setIsLayerMinimized(prev => {
-            const next = !prev;
-            if (isCompactLayout && !next) {
-                setIsInspirationMinimized(true);
-            }
-            return next;
-        });
-    }, [isCompactLayout]);
-
-    const handleToggleRightPanel = useCallback(() => {
-        setIsInspirationMinimized(prev => {
-            const next = !prev;
-            if (isCompactLayout && !next) {
-                setIsLayerMinimized(true);
-            }
-            return next;
-        });
-    }, [isCompactLayout]);
-
-    const handleZoomStep = useCallback((direction: 'in' | 'out') => {
-        const factor = direction === 'in' ? 1.12 : 1 / 1.12;
-        const nextZoom = Math.max(0.1, Math.min(zoom * factor, 10));
-        const centerX = viewportSize.width / 2;
-        const centerY = viewportSize.height / 2;
-        const newPanX = centerX - (centerX - panOffset.x) * (nextZoom / zoom);
-        const newPanY = centerY - (centerY - panOffset.y) * (nextZoom / zoom);
-        updateActiveBoard(board => ({ ...board, zoom: nextZoom, panOffset: { x: newPanX, y: newPanY } }));
-    }, [panOffset.x, panOffset.y, updateActiveBoard, viewportSize.height, viewportSize.width, zoom]);
-
-    const handleFitView = useCallback(() => {
-        const svgBounds = svgRef.current?.getBoundingClientRect();
-        if (!svgBounds) return;
-
-        if (elements.length === 0) {
-            updateActiveBoard(board => ({
-                ...board,
-                zoom: 1,
-                panOffset: {
-                    x: svgBounds.width / 2,
-                    y: svgBounds.height / 2,
-                },
-            }));
-            return;
-        }
-
-        let minX = Infinity;
-        let minY = Infinity;
-        let maxX = -Infinity;
-        let maxY = -Infinity;
-
-        elements.forEach(el => {
-            const bounds = getElementBounds(el, elements);
-            minX = Math.min(minX, bounds.x);
-            minY = Math.min(minY, bounds.y);
-            maxX = Math.max(maxX, bounds.x + bounds.width);
-            maxY = Math.max(maxY, bounds.y + bounds.height);
-        });
-
-        const contentWidth = Math.max(1, maxX - minX);
-        const contentHeight = Math.max(1, maxY - minY);
-        const padding = 96;
-        const fitZoom = Math.max(
-            0.12,
-            Math.min(
-                4,
-                Math.min(
-                    (svgBounds.width - padding) / contentWidth,
-                    (svgBounds.height - padding) / contentHeight
-                )
-            )
-        );
-
-        const centerX = minX + contentWidth / 2;
-        const centerY = minY + contentHeight / 2;
-
-        updateActiveBoard(board => ({
-            ...board,
-            zoom: fitZoom,
-            panOffset: {
-                x: svgBounds.width / 2 - centerX * fitZoom,
-                y: svgBounds.height / 2 - centerY * fitZoom,
-            },
-        }));
-    }, [elements, updateActiveBoard]);
-
-    const workspaceSurface = '#f6f7f9';
-    const canvasViewportFill = isCompactLayout ? '#e7e9ee' : '#eceff3';
-    const desktopLayersVisible = !isCompactLayout && !isLayerMinimized;
-    const desktopChatVisible = !isCompactLayout && !isInspirationMinimized;
-    const desktopCanvasFrameBorder = selectedElementIds.length > 0 ? '#4f8aff' : '#cfd5df';
-
     return (
-        <div className="flex h-[100dvh] w-screen flex-col overflow-hidden font-sans" style={{ backgroundColor: workspaceSurface }} onDragOver={handleDragOver} onDrop={handleDrop}>
-=======
-    const canvasView = (
-        <div className="theme-aware w-screen h-screen flex flex-col font-sans" style={{ backgroundColor: themePalette.appBackground }} onDragOver={handleDragOver} onDrop={handleDrop}>
->>>>>>> Stashed changes
+        <div className="w-screen h-screen flex flex-col font-sans" style={{ backgroundColor: canvasBackgroundColor }} onDragOver={handleDragOver} onDrop={handleDrop}>
             {isLoading && <Loader progressMessage={progressMessage} />}
             {error && (
                 <div className="absolute top-4 left-1/2 -translate-x-1/2 z-50 p-3 bg-red-100 border border-red-400 text-red-700 rounded-md shadow-lg flex items-center max-w-lg">
@@ -3140,7 +2473,21 @@ const App: React.FC = () => {
                     </button>
                 </div>
             )}
-<<<<<<< Updated upstream
+            <div className="absolute top-4 left-1/2 -translate-x-1/2 z-[45]">
+                <div className="inline-flex items-center rounded-full border border-neutral-200/80 bg-white/95 backdrop-blur-md p-1 shadow-lg">
+                    <button
+                        onClick={() => setWorkspaceMode('whiteboard')}
+                        className={`px-3 py-1 text-xs rounded-full transition-colors ${
+                            workspaceMode === 'whiteboard'
+                                ? 'bg-neutral-900 text-white'
+                                : 'text-neutral-700 hover:bg-neutral-100'
+                        }`}
+                    >
+                        🎨 自由白板
+                    </button>
+
+                </div>
+            </div>
             <BoardPanel
                 isOpen={isBoardPanelOpen}
                 onClose={() => setIsBoardPanelOpen(false)}
@@ -3151,13 +2498,13 @@ const App: React.FC = () => {
                 onRenameBoard={handleRenameBoard}
                 onDuplicateBoard={handleDuplicateBoard}
                 onDeleteBoard={handleDeleteBoard}
-                boardThumbnails={boardThumbnails}
+                boardThumbnails={boards.reduce((acc, b) => { acc[b.id] = generateBoardThumbnail(b.elements, b.canvasBackgroundColor || '#f5f5f5'); return acc; }, {} as Record<string, string>)}
             />
             {/* New Right Panel (multi-function: generate + inspiration) */}
-            {(
+            {workspaceMode === 'whiteboard' && (
                 <RightPanel
                     isMinimized={isInspirationMinimized}
-                    onToggleMinimize={handleToggleRightPanel}
+                    onToggleMinimize={() => setIsInspirationMinimized(prev => !prev)}
                     library={assetLibrary}
                     onRemove={(cat, id) => setAssetLibrary(prev => removeAsset(prev, cat, id))}
                     onRename={(cat, id, name) => setAssetLibrary(prev => renameAsset(prev, cat, id, name))}
@@ -3166,14 +2513,6 @@ const App: React.FC = () => {
                         handleGenerate(nextPrompt);
                     }}
                     onWidthChange={setRightPanelWidth}
-                    isCompact={isCompactLayout}
-                    compactBottomInset={compactPanelBottomInset}
-                    selectedElements={selectedCanvasElements}
-                    activeTool={activeTool}
-                    zoom={zoom}
-                    drawingOptions={drawingOptions}
-                    onElementUpdate={handlePropertyChange}
-                    onAlignSelection={handleAlignSelection}
                 />
             )}
             <CanvasSettings 
@@ -3197,158 +2536,36 @@ const App: React.FC = () => {
                 setModelPreference={setModelPreference}
                 t={t}
             />
-=======
             {workspaceMode === 'whiteboard' && (
                 <>
-                    <WorkspaceSidebar
-                        isOpen={!isLayerMinimized}
-                        onToggle={() => setIsLayerMinimized(prev => !prev)}
-                        outerGap={chromeMetrics.outerGap}
-                        panelWidth={chromeMetrics.sidebarWidth}
-                        boards={boards}
-                        activeBoardId={activeBoardId}
-                        onSwitchBoard={setActiveBoardId}
-                        onAddBoard={handleAddBoard}
-                        onRenameBoard={handleRenameBoard}
-                        onDuplicateBoard={handleDuplicateBoard}
-                        onDeleteBoard={handleDeleteBoard}
-                        generateBoardThumbnail={(els) => generateBoardThumbnail(els, canvasBackgroundColor)}
-                        elements={elements}
-                        selectedElementIds={selectedElementIds}
-                        onSelectElement={id => setSelectedElementIds(id ? [id] : [])}
-                        onToggleVisibility={id => handlePropertyChange(id, { isVisible: !(elements.find(el => el.id === id)?.isVisible ?? true) })}
-                        onToggleLock={id => handlePropertyChange(id, { isLocked: !(elements.find(el => el.id === id)?.isLocked ?? false) })}
-                        onRenameElement={(id, name) => handlePropertyChange(id, { name })}
-                        onReorder={(draggedId, targetId, position) => {
-                            commitAction(prev => {
-                                const newElements = [...prev];
-                                const draggedIndex = newElements.findIndex(el => el.id === draggedId);
-                                if (draggedIndex === -1) return prev;
-
-                                const [draggedItem] = newElements.splice(draggedIndex, 1);
-                                const targetIndex = newElements.findIndex(el => el.id === targetId);
-                                if (targetIndex === -1) {
-                                    newElements.push(draggedItem);
-                                    return newElements;
-                                }
-
-                                const finalIndex = position === 'before' ? targetIndex : targetIndex + 1;
-                                newElements.splice(finalIndex, 0, draggedItem);
-                                return newElements;
-                            });
-                        }}
+                    <Toolbar
+                        t={t}
+                        activeTool={activeTool}
+                        setActiveTool={setActiveTool}
+                        drawingOptions={drawingOptions}
+                        setDrawingOptions={setDrawingOptions}
+                        onUpload={handleAddImageElement}
+                        isCropping={!!croppingState}
+                        onConfirmCrop={handleConfirmCrop}
+                        onCancelCrop={handleCancelCrop}
+                        onSettingsClick={() => setIsSettingsPanelOpen(true)}
+                        onLayersClick={() => {}}
+                        onBoardsClick={() => setIsBoardPanelOpen(prev => !prev)}
+                        onUndo={handleUndo}
+                        onRedo={handleRedo}
+                        isLayerPanelExpanded={!isLayerMinimized}
+                        onLeftChange={(left) => setToolbarLeft(left)}
+                        canUndo={historyIndex > 0}
+                        canRedo={historyIndex < history.length - 1}
                     />
-                    <RightPanel
-                        theme={resolvedTheme}
-                        isMinimized={isInspirationMinimized}
-                        onToggleMinimize={() => setIsInspirationMinimized(prev => !prev)}
-                        outerGap={chromeMetrics.outerGap}
-                        defaultWidth={chromeMetrics.rightPanelDefaultWidth}
-                        minWidth={chromeMetrics.rightPanelMinWidth}
-                        widthCap={chromeMetrics.rightPanelWidthCap}
-                        compactMode={chromeMetrics.isTablet}
-                        library={assetLibrary}
-                        generationHistory={generationHistory}
-                        attachments={chatAttachments}
-                        onRemove={(cat, id) => setAssetLibrary(prev => removeAsset(prev, cat, id))}
-                        onRename={(cat, id, name) => setAssetLibrary(prev => renameAsset(prev, cat, id, name))}
-                        onGenerate={(nextPrompt) => {
-                            setPrompt(nextPrompt);
-                            handleGenerate(nextPrompt, 'right');
-                        }}
-                        onAddAttachments={handleAddAttachmentFiles}
-                        onRemoveAttachment={handleRemoveChatAttachment}
-                        onWidthChange={setRightPanelWidth}
+                    {/* Layer Toggle Button - positioned at bottom of toolbar column */}
+                    <LayerToggleButton
+                        isLayerMinimized={isLayerMinimized}
+                        onToggle={() => setIsLayerMinimized(prev => !prev)}
+                        toolbarLeft={toolbarLeft}
                     />
                 </>
             )}
-            <SettingsErrorBoundary isDark={resolvedTheme === 'dark'} onClose={() => setIsSettingsPanelOpen(false)}>
-                <CanvasSettings 
-                    isOpen={isSettingsPanelOpen} 
-                    onClose={() => setIsSettingsPanelOpen(false)} 
-                    language={language}
-                    setLanguage={setLanguage}
-                    themeMode={themeMode}
-                    resolvedTheme={resolvedTheme}
-                    setThemeMode={setThemeMode}
-                    wheelAction={wheelAction}
-                    setWheelAction={setWheelAction}
-                    userApiKeys={userApiKeys}
-                    onAddApiKey={handleAddApiKey}
-                    onDeleteApiKey={handleDeleteApiKey}
-                    onUpdateApiKey={handleUpdateApiKey}
-                    onSetDefaultApiKey={handleSetDefaultApiKey}
-                    modelPreference={modelPreference}
-                    setModelPreference={setModelPreference}
-                    t={t}
-                    apiConfigStore={apiConfigStore}
-                    clearKeysOnExit={clearKeysOnExit}
-                    setClearKeysOnExit={setClearKeysOnExit}
-                />
-            </SettingsErrorBoundary>
-            {/* 新用户引导弹窗 — 无 API Key 时自动出现 */}
-            <OnboardingWizard
-                isOpen={showOnboarding}
-                onClose={() => {
-                    setShowOnboarding(false);
-                    localStorage.setItem('onboarding.skipped', 'true');
-                }}
-                onAddApiKey={handleAddApiKey}
-                resolvedTheme={resolvedTheme}
-            />
-            {workspaceMode === 'whiteboard' && (
-                <Toolbar
-                    t={t}
-                    theme={resolvedTheme}
-                    compactScale={chromeMetrics.toolbarScale}
-                    topOffset={chromeMetrics.outerGap}
-                    leftClosed={chromeMetrics.toolbarLeftClosed}
-                    leftOpen={chromeMetrics.toolbarLeftOpen}
-                    activeTool={activeTool}
-                    setActiveTool={setActiveTool}
-                    drawingOptions={drawingOptions}
-                    setDrawingOptions={setDrawingOptions}
-                    onUpload={handleAddImageElement}
-                    isCropping={!!croppingState}
-                    onConfirmCrop={handleConfirmCrop}
-                    onCancelCrop={handleCancelCrop}
-                    onSettingsClick={() => setIsSettingsPanelOpen(true)}
-                    onLayersClick={() => setIsLayerMinimized(prev => !prev)}
-                    onBoardsClick={() => setIsLayerMinimized(prev => !prev)}
-                    onAssetsClick={() => setIsInspirationMinimized(prev => !prev)}
-                    onUndo={handleUndo}
-                    onRedo={handleRedo}
-                    isLayerPanelExpanded={!isLayerMinimized}
-                    onHeightChange={() => { /* reserved for aligning external buttons under toolbar */ }}
-                    onLeftChange={(left) => setToolbarLeft(left)}
-                    canUndo={historyIndex > 0}
-                    canRedo={historyIndex < history.length - 1}
-                />
-            )}
-            <div
-                className="fixed left-1/2 z-[1000] -translate-x-1/2"
-                style={{ top: chromeMetrics.outerGap + 8 }}
-            >
-                <div className={`flex items-center gap-1 rounded-full border p-1 shadow-[0_16px_40px_rgba(15,23,42,0.16)] backdrop-blur-md ${resolvedTheme === 'dark' ? 'border-[#2A3140] bg-[#12151B]/92' : 'border-[#E4E7EC] bg-white/92'}`}>
-                    <button
-                        type="button"
-                        onClick={() => setWorkspaceMode('whiteboard')}
-                        className={`rounded-full px-4 py-1.5 text-xs font-semibold transition ${workspaceMode === 'whiteboard' ? (resolvedTheme === 'dark' ? 'bg-[#F3F4F6] text-[#111827]' : 'bg-[#111827] text-white') : (resolvedTheme === 'dark' ? 'text-[#98A2B3] hover:bg-[#1B2029] hover:text-white' : 'text-[#667085] hover:bg-[#F5F7FA] hover:text-[#111827]')}`}
-                        title="切换到 Lovart 白板模式"
-                    >
-                        Lovart
-                    </button>
-                    <button
-                        type="button"
-                        onClick={() => setWorkspaceMode('node')}
-                        className={`rounded-full px-4 py-1.5 text-xs font-semibold transition ${workspaceMode === 'node' ? (resolvedTheme === 'dark' ? 'bg-[#7CB4FF] text-[#08111F]' : 'bg-[#175CD3] text-white') : (resolvedTheme === 'dark' ? 'text-[#98A2B3] hover:bg-[#1B2029] hover:text-white' : 'text-[#667085] hover:bg-[#F5F7FA] hover:text-[#111827]')}`}
-                        title="切换到 Tapnow 节点模式"
-                    >
-                        Tapnow
-                    </button>
-                </div>
-            </div>
->>>>>>> Stashed changes
             {addAssetModal?.open && (
                 <AssetAddModal 
                     isOpen={addAssetModal.open}
@@ -3370,247 +2587,47 @@ const App: React.FC = () => {
                     }}
                 />
             )}
-            {isCompactLayout ? (
-                <>
-                    <ProjectMenu
-                        title={activeBoard.name || 'Untitled'}
-                        left={projectMenuLeft}
-                        canDelete={boards.length > 1}
-                        canUndo={historyIndex > 0}
-                        canRedo={historyIndex < history.length - 1}
-                        onOpenBoards={() => setIsBoardPanelOpen(true)}
-                        onCreateProject={handleAddBoard}
-                        onDeleteCurrentProject={handleDeleteCurrentBoard}
-                        onImportImage={handleAddImageElement}
-                        onUndo={handleUndo}
-                        onRedo={handleRedo}
-                        onFitView={handleFitView}
-                        onZoomIn={() => handleZoomStep('in')}
-                        onZoomOut={() => handleZoomStep('out')}
-                    />
-                    <RightPanel
-                        isMinimized={isInspirationMinimized}
-                        onToggleMinimize={handleToggleRightPanel}
-                        library={assetLibrary}
-                        onRemove={(cat, id) => setAssetLibrary(prev => removeAsset(prev, cat, id))}
-                        onRename={(cat, id, name) => setAssetLibrary(prev => renameAsset(prev, cat, id, name))}
-                        onGenerate={(nextPrompt) => {
-                            setPrompt(nextPrompt);
-                            handleGenerate(nextPrompt);
-                        }}
-                        onWidthChange={setRightPanelWidth}
-                        isCompact={true}
-                        compactBottomInset={compactPanelBottomInset}
-                        selectedElements={selectedCanvasElements}
-                        activeTool={activeTool}
-                        zoom={zoom}
-                        drawingOptions={drawingOptions}
-                        onElementUpdate={handlePropertyChange}
-                        onAlignSelection={handleAlignSelection}
-                    />
-                    <Toolbar
-                        t={t}
-                        activeTool={activeTool}
-                        setActiveTool={setActiveTool}
-                        drawingOptions={drawingOptions}
-                        setDrawingOptions={setDrawingOptions}
-                        onUpload={handleAddImageElement}
-                        isCropping={!!croppingState}
-                        onConfirmCrop={handleConfirmCrop}
-                        onCancelCrop={handleCancelCrop}
-                        onSettingsClick={() => setIsSettingsPanelOpen(true)}
-                        onLayersClick={handleToggleLayerPanel}
-                        onBoardsClick={() => setIsBoardPanelOpen(prev => !prev)}
-                        onUndo={handleUndo}
-                        onRedo={handleRedo}
-                        canUndo={historyIndex > 0}
-                        canRedo={historyIndex < history.length - 1}
-                        isCompact={true}
-                        compactBottomInset={compactToolbarBottomInset}
-                    />
-                    <LayerPanelMinimizable
-                        isMinimized={isLayerMinimized}
-                        onToggleMinimize={handleToggleLayerPanel}
-                        elements={elements}
-                        selectedElementIds={selectedElementIds}
-                        onSelectElement={id => setSelectedElementIds(id ? [id] : [])}
-                        onToggleVisibility={id => handlePropertyChange(id, { isVisible: !(elements.find(el => el.id === id)?.isVisible ?? true) })}
-                        onToggleLock={id => handlePropertyChange(id, { isLocked: !(elements.find(el => el.id === id)?.isLocked ?? false) })}
-                        onRenameElement={(id, name) => handlePropertyChange(id, { name })}
-                        onReorder={(draggedId, targetId, position) => {
-                            commitAction(prev => {
-                                const newElements = [...prev];
-                                const draggedIndex = newElements.findIndex(el => el.id === draggedId);
-                                if (draggedIndex === -1) return prev;
+            {/* New Layer Panel (left side, minimizable) */}
+            {workspaceMode === 'whiteboard' && (
+                <LayerPanelMinimizable
+                    isMinimized={isLayerMinimized}
+                    onToggleMinimize={() => setIsLayerMinimized(prev => !prev)}
+                    elements={elements}
+                    selectedElementIds={selectedElementIds}
+                    onSelectElement={id => setSelectedElementIds(id ? [id] : [])}
+                    onToggleVisibility={id => handlePropertyChange(id, { isVisible: !(elements.find(el => el.id === id)?.isVisible ?? true) })}
+                    onToggleLock={id => handlePropertyChange(id, { isLocked: !(elements.find(el => el.id === id)?.isLocked ?? false) })}
+                    onRenameElement={(id, name) => handlePropertyChange(id, { name })}
+                    onReorder={(draggedId, targetId, position) => {
+                        commitAction(prev => {
+                            const newElements = [...prev];
+                            const draggedIndex = newElements.findIndex(el => el.id === draggedId);
+                            if (draggedIndex === -1) return prev;
 
-                                const [draggedItem] = newElements.splice(draggedIndex, 1);
-                                const targetIndex = newElements.findIndex(el => el.id === targetId);
-                                if (targetIndex === -1) {
-                                    newElements.push(draggedItem);
-                                    return newElements;
-                                }
-
-                                const finalIndex = position === 'before' ? targetIndex : targetIndex + 1;
-                                newElements.splice(finalIndex, 0, draggedItem);
+                            const [draggedItem] = newElements.splice(draggedIndex, 1);
+                            const targetIndex = newElements.findIndex(el => el.id === targetId);
+                            if (targetIndex === -1) {
+                                newElements.push(draggedItem); // Fallback
                                 return newElements;
-                            });
-                        }}
-                        isCompact={true}
-                        compactBottomInset={compactPanelBottomInset}
-                    />
-                </>
-            ) : (
-                <>
-                    <header className="flex h-16 shrink-0 items-center justify-between border-b border-neutral-200 bg-[#f6f7f9] px-5">
-                        <div className="flex items-center gap-3">
-                            <button
-                                type="button"
-                                onClick={handleToggleLayerPanel}
-                                className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-neutral-200 bg-white text-neutral-600 shadow-[0_6px_16px_rgba(15,23,42,0.06)] transition-colors hover:bg-neutral-50"
-                                title={desktopLayersVisible ? '收起图层' : '打开图层'}
-                            >
-                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                    <path d="m12 3 9 5-9 5-9-5 9-5Z" />
-                                    <path d="m3 12 9 5 9-5" />
-                                    <path d="m3 16 9 5 9-5" />
-                                </svg>
-                            </button>
-                            <ProjectMenu
-                                embedded={true}
-                                title={activeBoard.name || 'Untitled'}
-                                canDelete={boards.length > 1}
-                                canUndo={historyIndex > 0}
-                                canRedo={historyIndex < history.length - 1}
-                                onOpenBoards={() => setIsBoardPanelOpen(true)}
-                                onCreateProject={handleAddBoard}
-                                onDeleteCurrentProject={handleDeleteCurrentBoard}
-                                onImportImage={handleAddImageElement}
-                                onUndo={handleUndo}
-                                onRedo={handleRedo}
-                                onFitView={handleFitView}
-                                onZoomIn={() => handleZoomStep('in')}
-                                onZoomOut={() => handleZoomStep('out')}
-                            />
-                        </div>
+                            }
 
-                        <div className="flex items-center gap-3">
-                            <div className="inline-flex items-center rounded-full bg-white px-3 py-1.5 text-sm font-medium text-neutral-700 shadow-[0_6px_16px_rgba(15,23,42,0.06)]">
-                                ⚡ 30
-                            </div>
-                            <div className="h-9 w-9 rounded-full bg-[url('https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=80&q=80')] bg-cover bg-center shadow-sm" />
-                            <button
-                                type="button"
-                                onClick={handleToggleRightPanel}
-                                className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-neutral-200 bg-white text-neutral-600 shadow-[0_6px_16px_rgba(15,23,42,0.06)] transition-colors hover:bg-neutral-50"
-                                title={desktopChatVisible ? '收起对话' : '打开对话'}
-                            >
-                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-                                </svg>
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => setIsSettingsPanelOpen(true)}
-                                className="inline-flex h-10 w-10 items-center justify-center rounded-full border border-neutral-200 bg-white text-neutral-600 shadow-[0_6px_16px_rgba(15,23,42,0.06)] transition-colors hover:bg-neutral-50"
-                                title="设置"
-                            >
-                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                    <circle cx="12" cy="12" r="3" />
-                                    <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
-                                </svg>
-                            </button>
-                        </div>
-                    </header>
-                    {desktopLayersVisible && (
-                        <LayerPanelMinimizable
-                            isMinimized={false}
-                            onToggleMinimize={handleToggleLayerPanel}
-                            elements={elements}
-                            selectedElementIds={selectedElementIds}
-                            onSelectElement={id => setSelectedElementIds(id ? [id] : [])}
-                            onToggleVisibility={id => handlePropertyChange(id, { isVisible: !(elements.find(el => el.id === id)?.isVisible ?? true) })}
-                            onToggleLock={id => handlePropertyChange(id, { isLocked: !(elements.find(el => el.id === id)?.isLocked ?? false) })}
-                            onRenameElement={(id, name) => handlePropertyChange(id, { name })}
-                            onReorder={(draggedId, targetId, position) => {
-                                commitAction(prev => {
-                                    const newElements = [...prev];
-                                    const draggedIndex = newElements.findIndex(el => el.id === id);
-                                    if (draggedIndex === -1) return prev;
+                            const finalIndex = position === 'before' ? targetIndex : targetIndex + 1;
+                            newElements.splice(finalIndex, 0, draggedItem);
 
-                                    const [draggedItem] = newElements.splice(draggedIndex, 1);
-                                    const targetIndex = newElements.findIndex(el => el.id === targetId);
-                                    if (targetIndex === -1) {
-                                        newElements.push(draggedItem);
-                                        return newElements;
-                                    }
-
-                                    const finalIndex = position === 'before' ? targetIndex : targetIndex + 1;
-                                    newElements.splice(finalIndex, 0, draggedItem);
-                                    return newElements;
-                                });
-                            }}
-                        />
-                    )}
-                    {desktopChatVisible && (
-                        <RightPanel
-                            isMinimized={false}
-                            onToggleMinimize={handleToggleRightPanel}
-                            library={assetLibrary}
-                            onRemove={(cat, id) => setAssetLibrary(prev => removeAsset(prev, cat, id))}
-                            onRename={(cat, id, name) => setAssetLibrary(prev => renameAsset(prev, cat, id, name))}
-                            onGenerate={(nextPrompt) => {
-                                setPrompt(nextPrompt);
-                                handleGenerate(nextPrompt);
-                            }}
-                            onWidthChange={setRightPanelWidth}
-                            selectedElements={selectedCanvasElements}
-                            activeTool={activeTool}
-                            zoom={zoom}
-                            drawingOptions={drawingOptions}
-                            onElementUpdate={handlePropertyChange}
-                            onAlignSelection={handleAlignSelection}
-                        />
-                    )}
-                </>
+                            return newElements;
+                        });
+                    }}
+                />
             )}
             <div 
                 className="flex-grow relative overflow-hidden"
                 style={{
-<<<<<<< Updated upstream
-                    paddingLeft: isCompactLayout ? '10px' : (desktopLayersVisible ? '336px' : '24px'),
-                    paddingRight: isCompactLayout ? '10px' : (desktopChatVisible ? '360px' : '24px'),
-                    paddingTop: isCompactLayout ? '0px' : '20px',
-                    paddingBottom: isCompactLayout ? `${canvasBottomInset}px` : '168px',
-                    backgroundColor: isCompactLayout ? '#eef1f4' : '#eef1f4',
-                }}
-            >
-                {!croppingState && !isCompactLayout && (
-                    <div className="pointer-events-none absolute inset-0 z-[1] flex items-start justify-center pt-8">
-                        <div
-                            className="relative h-[min(56vh,560px)] w-[min(56vw,760px)] rounded-[28px] bg-[#e5e8ed] shadow-[inset_0_1px_0_rgba(255,255,255,0.9),0_18px_42px_rgba(15,23,42,0.10)]"
-                            style={{ border: `2px solid ${desktopCanvasFrameBorder}` }}
-                        >
-                            <div className="flex h-full items-center justify-center text-neutral-300">
-                                <svg width="148" height="148" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.2">
-                                    <path d="M4 19h16a1 1 0 0 0 .8-1.6l-4-5.33a1 1 0 0 0-1.6 0L12 16 8.8 11.73a1 1 0 0 0-1.6 0L3.2 17.4A1 1 0 0 0 4 19Z" />
-                                    <circle cx="16.5" cy="7.5" r="1.5" />
-                                </svg>
-                            </div>
-                        </div>
-                    </div>
-                )}
-=======
-                    paddingRight: workspaceMode === 'node' ? '0px' : (chromeMetrics.isTablet ? `${chromeMetrics.outerGap}px` : `${rightPanelWidth + chromeMetrics.promptSideInset}px`),
-                    paddingBottom: croppingState || workspaceMode === 'node' ? '0px' : `${chromeMetrics.canvasBottomInset}px`,
+                    paddingRight: workspaceMode === 'whiteboard' ? `${rightPanelWidth + 32}px` : '0px',
+                    paddingBottom: workspaceMode === 'whiteboard' ? (croppingState ? '0px' : '96px') : '0px',
                     transition: 'padding-right 0.35s cubic-bezier(0.4, 0, 0.2, 1), padding-bottom 0.35s cubic-bezier(0.4, 0, 0.2, 1)'
                 }}
             >
-                {workspaceMode === 'node' ? (
-                    <div className="absolute inset-0 px-3 pb-3 pt-2">
-                        <NodeWorkflowPage embedded />
-                    </div>
-                ) : (
->>>>>>> Stashed changes
+
                 <svg
                     ref={svgRef}
                     className="w-full h-full"
@@ -3623,7 +2640,10 @@ const App: React.FC = () => {
                     style={{ cursor }}
                 >
                     <defs>
-                         {renderElements.map(el => {
+                        <pattern id="grid" width="20" height="20" patternUnits="userSpaceOnUse">
+                            <circle cx="1" cy="1" r="1" className="fill-gray-400 opacity-50"/>
+                        </pattern>
+                         {elements.map(el => {
                             if (el.type === 'image' && el.borderRadius && el.borderRadius > 0) {
                                 const clipPathId = `clip-${el.id}`;
                                 return (
@@ -3641,9 +2661,11 @@ const App: React.FC = () => {
                         })}
                     </defs>
                     <g transform={`translate(${panOffset.x}, ${panOffset.y}) scale(${zoom})`}>
-                        <rect x={-panOffset.x/zoom} y={-panOffset.y/zoom} width={`calc(100% / ${zoom})`} height={`calc(100% / ${zoom})`} fill={canvasViewportFill} />
+                        <rect x={-panOffset.x/zoom} y={-panOffset.y/zoom} width={`calc(100% / ${zoom})`} height={`calc(100% / ${zoom})`} fill="url(#grid)" />
                         
-                        {renderElements.map(el => {
+                        {elements.map(el => {
+                            if (!isElementVisible(el, elements)) return null;
+
                             const isSelected = selectedElementIds.includes(el.id);
                             let selectionComponent = null;
 
@@ -3738,6 +2760,7 @@ const App: React.FC = () => {
                                     <g
                                         key={el.id}
                                         data-id={el.id}
+                                        onDragStart={(e) => handleCanvasImageDragStart(el, e as unknown as React.DragEvent<SVGGElement>)}
                                     >
                                         <image 
                                             transform={`translate(${el.x}, ${el.y})`} 
@@ -3839,19 +2862,19 @@ const App: React.FC = () => {
                                     <div className="p-1.5 bg-white rounded-lg shadow-lg flex items-center justify-start space-x-2 border border-gray-200 text-gray-800 overflow-x-auto">
                                         <button title={t('contextMenu.copy')} onClick={() => handleCopyElement(element)} className="p-2 rounded hover:bg-gray-100 flex items-center justify-center"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg></button>
                                         {element.type === 'image' && <button title={t('contextMenu.download')} onClick={() => handleDownloadImage(element)} className="p-2 rounded hover:bg-gray-100 flex items-center justify-center"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg></button>}
-                                        {element.type === 'image' && <button title="Add to asset library" onClick={async () => {
+                                        {element.type === 'image' && <button title="加入素材库" onClick={async () => {
                                                 const { href, mimeType, width, height } = { href: (element as ImageElement).href, mimeType: (element as ImageElement).mimeType, width: (element as ImageElement).width, height: (element as ImageElement).height };
                                                 setAddAssetModal({ open: true, dataUrl: href, mimeType, width, height });
                                             }} className="p-2 rounded hover:bg-gray-100 flex items-center justify-center">
                                                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><path d="M8 12h8"/><path d="M12 8v8"/></svg>
                                             </button>}
-                                        {element.type === 'image' && <button title="BANANA auto-split layers" onClick={() => handleSplitImageWithBanana(element)} className="p-2 rounded hover:bg-gray-100 flex items-center justify-center disabled:opacity-50" disabled={isLoading}>
+                                        {element.type === 'image' && <button title="BANANA 一键识别拆层" onClick={() => handleSplitImageWithBanana(element)} className="p-2 rounded hover:bg-gray-100 flex items-center justify-center disabled:opacity-50" disabled={isLoading}>
                                                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="8" height="8" rx="1"></rect><rect x="13" y="3" width="8" height="8" rx="1"></rect><rect x="3" y="13" width="8" height="8" rx="1"></rect><path d="M13 17h8"></path><path d="M17 13v8"></path></svg>
                                             </button>}
-                                        {element.type === 'image' && <button title="BANANA Agent锛氶珮娓呮斁澶?x2" onClick={() => handleUpscaleImageWithBanana(element)} className="p-2 rounded hover:bg-gray-100 flex items-center justify-center disabled:opacity-50" disabled={isLoading}>
+                                        {element.type === 'image' && <button title="BANANA Agent：高清放大 x2" onClick={() => handleUpscaleImageWithBanana(element)} className="p-2 rounded hover:bg-gray-100 flex items-center justify-center disabled:opacity-50" disabled={isLoading}>
                                                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="7"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line><line x1="11" y1="8" x2="11" y2="14"></line><line x1="8" y1="11" x2="14" y2="11"></line></svg>
                                             </button>}
-                                        {element.type === 'image' && <button title="BANANA Agent锛氭櫤鑳藉幓鑳屾櫙" onClick={() => handleRemoveBackgroundWithBanana(element)} className="p-2 rounded hover:bg-gray-100 flex items-center justify-center disabled:opacity-50" disabled={isLoading}>
+                                        {element.type === 'image' && <button title="BANANA Agent：智能去背景" onClick={() => handleRemoveBackgroundWithBanana(element)} className="p-2 rounded hover:bg-gray-100 flex items-center justify-center disabled:opacity-50" disabled={isLoading}>
                                                 <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M3 3l18 18"></path><path d="M20 12a8 8 0 0 1-11.31 7.31"></path><path d="M4 12a8 8 0 0 1 11.31-7.31"></path></svg>
                                             </button>}
                                         {element.type === 'video' && <a title={t('contextMenu.download')} href={element.href} download={`video-${element.id}.mp4`} className="p-2 rounded hover:bg-gray-100 flex items-center justify-center"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg></a>}
@@ -3920,7 +2943,7 @@ const App: React.FC = () => {
                         {croppingState && (
                              <g>
                                 <path
-                                    d={`M ${-panOffset.x/zoom},${-panOffset.y/zoom} H ${viewportSize.width/zoom - panOffset.x/zoom} V ${viewportSize.height/zoom - panOffset.y/zoom} H ${-panOffset.x/zoom} Z M ${croppingState.cropBox.x},${croppingState.cropBox.y} v ${croppingState.cropBox.height} h ${croppingState.cropBox.width} v ${-croppingState.cropBox.height} Z`}
+                                    d={`M ${-panOffset.x/zoom},${-panOffset.y/zoom} H ${window.innerWidth/zoom - panOffset.x/zoom} V ${window.innerHeight/zoom - panOffset.y/zoom} H ${-panOffset.x/zoom} Z M ${croppingState.cropBox.x},${croppingState.cropBox.y} v ${croppingState.cropBox.height} h ${croppingState.cropBox.width} v ${-croppingState.cropBox.height} Z`}
                                     fill="rgba(0,0,0,0.5)"
                                     fillRule="evenodd"
                                     pointerEvents="none"
@@ -3950,7 +2973,6 @@ const App: React.FC = () => {
                         )}
                     </g>
                 </svg>
-                )}
                  {contextMenu && (() => {
                     const hasDrawableSelection = elements.some(el => selectedElementIds.includes(el.id) && el.type !== 'image' && el.type !== 'video');
                     const isGroupable = selectedElementIds.length > 1;
@@ -3980,123 +3002,16 @@ const App: React.FC = () => {
                     );
                 })()}
             </div>
-<<<<<<< Updated upstream
-            {!croppingState && !isCompactLayout && (
-                <div className="pointer-events-none absolute inset-0 z-[39]">
-                    <div
-                        className="absolute pointer-events-auto"
-                        style={{
-                            left: 'clamp(88px, 9vw, 132px)',
-                            bottom: '124px',
-                            width: 'clamp(380px, 34vw, 560px)',
-                        }}
-                    >
-=======
             {!croppingState && workspaceMode === 'whiteboard' && (
-                <div 
-                    className="compact-prompt-dock absolute bottom-0 left-0 right-0 z-[40] transition-all duration-300 ease-out flex justify-center pointer-events-none"
-                    style={{
-                        paddingLeft: chromeMetrics.isTablet ? `${chromeMetrics.promptSideInset}px` : `${isLayerMinimized ? chromeMetrics.outerGap : chromeMetrics.sidebarWidth + chromeMetrics.outerGap + 8}px`,
-                        paddingRight: chromeMetrics.isTablet ? `${chromeMetrics.promptSideInset}px` : `${rightPanelWidth + chromeMetrics.promptSideInset}px`,
-                        paddingBottom: `${chromeMetrics.promptDockBottom}px`
-                    }}
-                >
-                    <div className="compact-prompt-dock__inner pointer-events-auto w-full transition-transform hover:-translate-y-0.5 duration-300 drop-shadow-xl" style={{ maxWidth: `${chromeMetrics.promptMaxWidth}px` }}>
->>>>>>> Stashed changes
-                        <PromptBar 
-                            t={t}
-                            prompt={prompt} 
-                            setPrompt={setPrompt} 
-                            onGenerate={handleGenerate} 
-                            isLoading={isLoading} 
-                            isSelectionActive={isSelectionActive} 
-                            selectedElementCount={selectedElementIds.length}
-                            selectedCanvasElements={selectedCanvasElements}
-                            onAddUserEffect={handleAddUserEffect}
-                            userEffects={userEffects}
-                            onDeleteUserEffect={handleDeleteUserEffect}
-                            generationMode={generationMode}
-                            setGenerationMode={setGenerationMode}
-                            videoAspectRatio={videoAspectRatio}
-                            setVideoAspectRatio={setVideoAspectRatio}
-                            selectedImageModel={modelPreference.imageModel}
-                            selectedVideoModel={modelPreference.videoModel}
-                            imageModelOptions={IMAGE_MODEL_OPTIONS}
-                            videoModelOptions={VIDEO_MODEL_OPTIONS}
-                            onImageModelChange={(model) => setModelPreference(prev => ({ ...prev, imageModel: model }))}
-                            onVideoModelChange={(model) => setModelPreference(prev => ({ ...prev, videoModel: model }))}
-                            canvasElements={elements}
-                            onMentionedElementIds={setMentionedElementIds}
-                            onEnhancePrompt={handleEnhancePrompt}
-                            isEnhancingPrompt={isEnhancingPrompt}
-                            onLockCharacterFromSelection={handleLockCharacterFromSelection}
-                            canLockCharacter={!!selectedSingleImage}
-                            characterLocks={characterLocks}
-                            activeCharacterLockId={activeCharacterLockId}
-                            onSetActiveCharacterLock={handleSetActiveCharacterLock}
-                            layout="floating"
-                        />
-                    </div>
-                </div>
-            )}
-            {!croppingState && !isCompactLayout && isLayerMinimized && (
-                <button
-                    onClick={handleToggleLayerPanel}
-                    className="fixed left-4 z-[41] inline-flex h-10 items-center rounded-full border border-white/8 bg-[#17171b]/92 px-4 text-sm font-semibold text-white shadow-md backdrop-blur transition-colors hover:bg-[#202026]"
-                    style={{ bottom: '68px' }}
-                    aria-label="Open layers"
-                    title="Open layers"
-                >
-                    图层
-                </button>
-            )}
-            {!croppingState && !isCompactLayout && (
-                <div
-                    className="absolute z-[41] inline-flex items-center gap-2 rounded-2xl border border-white/8 bg-[#17171b]/92 px-3 py-2 text-sm text-neutral-200 shadow-[0_14px_28px_rgba(0,0,0,0.28)] backdrop-blur"
-                    style={{ left: `${desktopCanvasLeftInset + 18}px`, bottom: '16px' }}
-                >
-                    <button
-                        onClick={handleFitView}
-                        className="inline-flex h-7 w-7 items-center justify-center rounded-full border border-white/8 bg-white/[0.03] text-neutral-200 transition-colors hover:bg-white/10"
-                        aria-label="Fit view"
-                        title="Fit view"
-                    >
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                            <path d="M8 3H5a2 2 0 0 0-2 2v3" />
-                            <path d="M16 3h3a2 2 0 0 1 2 2v3" />
-                            <path d="M8 21H5a2 2 0 0 1-2-2v-3" />
-                            <path d="M16 21h3a2 2 0 0 0 2-2v-3" />
-                        </svg>
-                    </button>
-                    <button
-                        onClick={() => handleZoomStep('out')}
-                        className="h-7 w-7 rounded-full border border-white/8 bg-white/[0.03] text-neutral-200 transition-colors hover:bg-white/10"
-                        aria-label="Zoom out"
-                        title="Zoom out"
-                    >
-                        -
-                    </button>
-                    <span className="w-14 text-center font-medium">{Math.round(zoom * 100)}%</span>
-                    <button
-                        onClick={() => handleZoomStep('in')}
-                        className="h-7 w-7 rounded-full border border-white/8 bg-white/[0.03] text-neutral-200 transition-colors hover:bg-white/10"
-                        aria-label="Zoom in"
-                        title="Zoom in"
-                    >
-                        +
-                    </button>
-                </div>
-            )}
-            {!croppingState && isCompactLayout && (
                 <div 
                     className="absolute bottom-0 left-0 right-0 z-[40] transition-all duration-300 ease-out flex justify-center pointer-events-none"
                     style={{
-                        paddingLeft: isCompactLayout ? '10px' : `${desktopLeftSafeInset}px`,
-                        paddingRight: isCompactLayout ? '10px' : `${desktopRightSafeInset}px`,
-                        paddingBottom: `${promptBottomPadding}px`
+                        paddingLeft: isLayerMinimized ? '0px' : '288px',
+                        paddingRight: `${rightPanelWidth + 32}px`,
+                        paddingBottom: '24px'
                     }}
                 >
-                    <div ref={promptDockRef} className="pointer-events-auto w-full max-w-5xl transition-transform duration-300 drop-shadow-2xl hover:-translate-y-1">
+                    <div className="pointer-events-auto w-[90%] max-w-4xl transition-transform hover:-translate-y-1 duration-300 drop-shadow-2xl">
                         <PromptBar 
                             t={t}
                             prompt={prompt} 
@@ -4105,7 +3020,6 @@ const App: React.FC = () => {
                             isLoading={isLoading} 
                             isSelectionActive={isSelectionActive} 
                             selectedElementCount={selectedElementIds.length}
-                            selectedCanvasElements={selectedCanvasElements}
                             onAddUserEffect={handleAddUserEffect}
                             userEffects={userEffects}
                             onDeleteUserEffect={handleDeleteUserEffect}
@@ -4134,14 +3048,6 @@ const App: React.FC = () => {
             )}
         </div>
     );
-
-    return canvasView;
 };
 
 export default App;
-
-
-<<<<<<< Updated upstream
-=======
-
->>>>>>> Stashed changes

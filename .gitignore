@@ -22,3 +22,15 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Tauri
+src-tauri/target/
+src-tauri/gen/
+src-tauri/.tauri_private_key
+src-tauri/.tauri_private_key.pub
+
+# Build outputs
+dist-extension/
+
+# Source assets (not needed in repo)
+src-tauri/icons/flovart-source.png

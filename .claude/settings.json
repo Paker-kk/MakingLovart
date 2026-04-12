@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "language": "chinese",
+  "mcpServers": {
+    "flovart": {
+      "command": "npx",
+      "args": ["tsx", "mcp/server.ts"]
+    }
+  },
+  "permissions": {
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Read(./node_modules/**)",
+      "Read(./src-tauri/target/**)"
+    ]
+  },
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "powershell",
+            "command": "& (Join-Path $env:CLAUDE_PROJECT_DIR '.claude/hooks/validate-shortdrama-command.ps1')"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "shell": "powershell",
+            "command": "& (Join-Path $env:CLAUDE_PROJECT_DIR '.claude/hooks/after-shortdrama-write.ps1')",
+            "async": true,
+            "timeout": 20
+          }
+        ]
+      }
+    ]
+  }
+}

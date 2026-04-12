@@ -23,8 +23,11 @@ export default defineConfig(({ mode }) => {
         entries: ['index.html'],
       },
       define: {
-        'process.env.API_KEY': JSON.stringify(env.GEMINI_API_KEY || env.VITE_GEMINI_API_KEY),
-        'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY || env.VITE_GEMINI_API_KEY)
+        // NOTE: These are embedded at build time. In production,
+        // prefer runtime config via Settings panel (setGeminiRuntimeConfig).
+        // Only set for local dev / AI Studio embed scenarios — never commit real keys.
+        'process.env.API_KEY': JSON.stringify(env.GEMINI_API_KEY || env.VITE_GEMINI_API_KEY || ''),
+        'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY || env.VITE_GEMINI_API_KEY || '')
       },
       resolve: {
         alias: {

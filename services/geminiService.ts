@@ -12,9 +12,10 @@
  * 3. generateVideo: 图片生成视频（基于 Veo 2.0）
  * 
  * 【使用的 AI 模型】
- * - gemini-2.5-flash-image-preview: 图像编辑和生成
+ * - gemini-3-flash-preview: 文本理解与提示词润色
+ * - gemini-3.1-flash-image-preview: 图像编辑和生成
  * - imagen-4.0-generate-001: 文本直接生成图像
- * - veo-2.0-generate-001: 视频生成
+ * - veo-3.1-generate-preview: 视频生成
  * 
  * 【API Key 配置】
  * 从环境变量 process.env.API_KEY 读取 Gemini API Key
@@ -32,7 +33,9 @@ import type { PromptEnhanceRequest, PromptEnhanceResult } from "../types";
 // 从环境变量获取 API Key
 const API_KEY = process.env.API_KEY;
 let runtimeConfig: {
-  apiKey?: string;
+  textApiKey?: string;
+  imageApiKey?: string;
+  videoApiKey?: string;
   textModel?: string;
   imageModel?: string;
   textToImageModel?: string;
@@ -40,7 +43,9 @@ let runtimeConfig: {
 } = {};
 
 export function setGeminiRuntimeConfig(config: {
-  apiKey?: string;
+  textApiKey?: string;
+  imageApiKey?: string;
+  videoApiKey?: string;
   textModel?: string;
   imageModel?: string;
   textToImageModel?: string;
@@ -49,16 +54,88 @@ export function setGeminiRuntimeConfig(config: {
   runtimeConfig = { ...runtimeConfig, ...config };
 }
 
-function getApiKey(): string {
-  const key = runtimeConfig.apiKey || API_KEY;
+/**
+ * 【函数】获取 API Key
+ *
+ * 按优先级解析可用的 API Key：
+ *   1. explicitKey（函数参数显式传入，来自 aiGateway 路由）
+ *   2. runtimeConfig 中对应 capability 的 key
+ *   3. runtimeConfig 中其他 capability 的 key（回退链）
+ *   4. 环境变量 process.env.API_KEY（.env 文件配置）
+ *
+ * @param capability - 使用场景：text（LLM 润色）、image（图片生成/编辑）、video（视频生成）
+ * @param explicitKey - 可选的显式 API Key，优先级最高
+ */
+function getApiKey(capability: "text" | "image" | "video" = "text", explicitKey?: string): string {
+  if (explicitKey) return explicitKey;
+  const scopedKey =
+    capability === "text"
+      ? runtimeConfig.textApiKey
+      : capability === "image"
+        ? runtimeConfig.imageApiKey
+        : runtimeConfig.videoApiKey;
+  const key = scopedKey || runtimeConfig.textApiKey || runtimeConfig.imageApiKey || runtimeConfig.videoApiKey || API_KEY;
   if (!key) {
-    throw new Error("Gemini API key is not set. Please configure it in settings.");
+    throw new Error(
+      "Gemini API key is not configured. " +
+      "Please add your Google API key in Settings → API Keys (recommended), " +
+      "or set GEMINI_API_KEY in a .env.local file and restart the dev server."
+    );
   }
   return key;
 }
 
-function getClient() {
-  return new GoogleGenAI({ apiKey: getApiKey() });
+/**
+ * 【函数】创建 Google GenAI 客户端实例
+ * @param capability - 使用场景
+ * @param explicitKey - 可选的显式 API Key
+ */
+function getClient(capability: "text" | "image" | "video" = "text", explicitKey?: string) {
+  return new GoogleGenAI({ apiKey: getApiKey(capability, explicitKey) });
+}
+
+function normalizeGeminiErrorMessage(message: string, status?: number): string {
+  const msg = message || '';
+
+  if (msg.includes('API_KEY_INVALID') || msg.includes('API key not valid')) {
+    return 'API Key 无效，请检查 Google AI Studio 里复制的 Key 是否正确。';
+  }
+
+  if (msg.includes('PERMISSION_DENIED') || msg.includes('403')) {
+    return 'Google Key 权限不足。请确认该 Key 对应的 AI Studio 项目可用，并已启用 Gemini API 访问。';
+  }
+
+  if (
+    status === 429 ||
+    msg.includes('RESOURCE_EXHAUSTED') ||
+    msg.includes('429') ||
+    msg.includes('quota') ||
+    msg.includes('rate limit') ||
+    msg.includes('no available credits') ||
+    msg.includes('billing') ||
+    msg.includes('credit')
+  ) {
+    return 'Google AI Studio 当前不可计费或额度不足。请检查：1. 是否仍是免费层配额打满；2. AI Studio 项目是否已设置结算；3. 2026 年起 Google Cloud 300 美元欢迎赠金通常不能直接用于 Gemini API；4. 若你的账号是预付费方案，AI Studio 结算页里必须有正的预付积分。';
+  }
+
+  return msg;
+}
+
+/**
+ * 轻量级 API Key 验证 — 调用 Gemini models.list 接口
+ * 成功返回 { ok: true }，失败返回 { ok: false, message }
+ */
+export async function validateGeminiApiKey(apiKey: string): Promise<{ ok: boolean; message?: string }> {
+  try {
+    const url = `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}&pageSize=1`;
+    const res = await fetch(url);
+    if (res.ok) return { ok: true };
+    const body = await res.json().catch(() => ({}));
+    const msg = body?.error?.message || `HTTP ${res.status}`;
+    return { ok: false, message: normalizeGeminiErrorMessage(msg, res.status) };
+  } catch (err) {
+    return { ok: false, message: err instanceof Error ? err.message : 'Network error' };
+  }
 }
 
 function getTextFromResponse(response: GenerateContentResponse): string {
@@ -98,7 +175,7 @@ function safeParseEnhanceJson(raw: string, fallbackPrompt: string): PromptEnhanc
   }
 }
 
-export async function enhancePromptWithGemini(request: PromptEnhanceRequest): Promise<PromptEnhanceResult> {
+export async function enhancePromptWithGemini(request: PromptEnhanceRequest, apiKey?: string): Promise<PromptEnhanceResult> {
   const modeHintMap: Record<PromptEnhanceRequest["mode"], string> = {
     smart: "Do intelligent enhancement with richer cinematic details, composition, and lighting.",
     style: `Rewrite with strong style intent. Preferred style preset: ${request.stylePreset || "cinematic"}.`,
@@ -116,8 +193,8 @@ export async function enhancePromptWithGemini(request: PromptEnhanceRequest): Pr
   ].join("\n");
 
   try {
-    const ai = getClient();
-    const model = runtimeConfig.textModel || "gemini-2.5-pro";
+    const ai = getClient("text", apiKey);
+    const model = runtimeConfig.textModel || "gemini-3-flash-preview";
     const response: GenerateContentResponse = await ai.models.generateContent({
       model,
       contents: {
@@ -134,9 +211,9 @@ export async function enhancePromptWithGemini(request: PromptEnhanceRequest): Pr
   } catch (error) {
     console.error("Error enhancing prompt with Gemini:", error);
     if (error instanceof Error) {
-      throw new Error(`Prompt enhancer error: ${error.message}`);
+      throw new Error(`提示词润色失败: ${normalizeGeminiErrorMessage(error.message)}`);
     }
-    throw new Error("Unknown error while enhancing prompt.");
+    throw new Error("润色提示词时发生未知错误。");
   }
 }
 
@@ -179,7 +256,8 @@ type ImageInput = {
 export async function editImage(
   images: ImageInput[], 
   prompt: string,
-  mask?: ImageInput
+  mask?: ImageInput,
+  apiKey?: string
 ): Promise<{ newImageBase64: string | null; newImageMimeType: string | null; textResponse: string | null; }> {
   
   // 步骤1：转换图片格式 - 提取 base64 数据
@@ -213,10 +291,10 @@ export async function editImage(
     : [...imageParts, textPart];            // 无遮罩：图片+提示词
 
   try {
-    const ai = getClient();
+    const ai = getClient("image", apiKey);
     // 步骤5：调用 Gemini API
     const response: GenerateContentResponse = await ai.models.generateContent({
-      model: runtimeConfig.imageModel || 'gemini-2.5-flash-image-preview',  // 使用 Gemini 2.5 Flash 图像模型
+      model: runtimeConfig.imageModel || 'gemini-3.1-flash-image-preview',  // 使用 Gemini 3.1 Flash 图像模型
       contents: {
         parts: parts,  // 传入组装好的内容
       },
@@ -264,9 +342,9 @@ export async function editImage(
     // 步骤9：错误处理
     console.error("Error calling Gemini API:", error);
     if (error instanceof Error) {
-        throw new Error(`Gemini API Error: ${error.message}`);
+      throw new Error(`Gemini API 错误: ${normalizeGeminiErrorMessage(error.message)}`);
     }
-    throw new Error("An unknown error occurred while contacting the Gemini API.");
+    throw new Error("调用 Gemini API 时发生未知错误。");
   }
 }
 
@@ -294,9 +372,9 @@ export async function editImage(
  * - 不需要输入图片，纯文本生成
  * - 生成速度较快
  */
-export async function generateImageFromText(prompt: string): Promise<{ newImageBase64: string | null; newImageMimeType: string | null; textResponse: string | null; }> {
+export async function generateImageFromText(prompt: string, apiKey?: string): Promise<{ newImageBase64: string | null; newImageMimeType: string | null; textResponse: string | null; }> {
   try {
-    const ai = getClient();
+    const ai = getClient("image", apiKey);
     const response = await ai.models.generateImages({
         model: runtimeConfig.textToImageModel || 'imagen-4.0-generate-001',  // 使用 Imagen 4.0 模型
         prompt: prompt,
@@ -323,16 +401,16 @@ export async function generateImageFromText(prompt: string): Promise<{ newImageB
   } catch (error) {
     console.error("Error calling Gemini API for text-to-image:", error);
     if (error instanceof Error) {
-        throw new Error(`Gemini API Error: ${error.message}`);
+      throw new Error(`Gemini 图片生成错误: ${normalizeGeminiErrorMessage(error.message)}`);
     }
-    throw new Error("An unknown error occurred while contacting the Gemini API.");
+    throw new Error("调用 Gemini API 生成图片时发生未知错误。");
   }
 }
 
 /**
  * 【函数】生成视频 / AI 视频生成
  * 
- * 使用 Veo 2.0 模型从图片生成视频，支持纯文本或图片+文本模式
+ * 使用 Veo 3.1 模型从图片生成视频，支持纯文本或图片+文本模式
  * 
  * @param {string} prompt - 视频描述提示词
  * @param {'16:9' | '9:16'} aspectRatio - 视频宽高比
@@ -364,9 +442,10 @@ export async function generateVideo(
   prompt: string,
   aspectRatio: '16:9' | '9:16',
   onProgress: (message: string) => void,
-  image?: ImageInput
+  image?: ImageInput,
+  apiKey?: string
 ): Promise<{ videoBlob: Blob; mimeType: string }> {
-  const ai = getClient();
+  const ai = getClient("video", apiKey);
   // 步骤1：初始化
   onProgress('Initializing video generation...');
   
@@ -378,7 +457,7 @@ export async function generateVideo(
 
   // 步骤3：提交视频生成请求
   let operation: GenerateVideosOperation = await ai.models.generateVideos({
-    model: runtimeConfig.videoModel || 'veo-2.0-generate-001',  // 使用 Veo 2.0 模型
+    model: runtimeConfig.videoModel || 'veo-3.1-generate-preview',  // 使用 Veo 3.1 模型
     prompt: prompt,
     image: imagePart,
     config: {
@@ -417,9 +496,12 @@ export async function generateVideo(
     throw new Error("Video generation completed, but no download link was found.");
   }
 
-  // 步骤8：下载视频文件
+  // 步骤8：下载视频文件（使用 Authorization header 防止 API Key 泄露到 URL）
   onProgress('Downloading generated video...');
-  const response = await fetch(`${downloadLink}&key=${getApiKey()}`);
+  const videoApiKey = getApiKey("video", apiKey);
+  const response = await fetch(downloadLink, {
+    headers: { 'x-goog-api-key': videoApiKey },
+  });
   if (!response.ok) {
     throw new Error(`Failed to download video: ${response.statusText}`);
   }
