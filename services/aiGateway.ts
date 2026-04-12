@@ -526,6 +526,39 @@ function sleep(ms: number) {
     return new Promise(resolve => setTimeout(resolve, ms));
 }
 
+const DEFAULT_TIMEOUT_MS = 120_000;
+const MAX_RETRIES = 2;
+const RETRYABLE_STATUS = new Set([429, 500, 502, 503, 504]);
+
+export async function fetchWithRetry(
+    input: RequestInfo | URL,
+    init?: RequestInit & { timeoutMs?: number; maxRetries?: number },
+): Promise<Response> {
+    const timeoutMs = init?.timeoutMs ?? DEFAULT_TIMEOUT_MS;
+    const maxRetries = init?.maxRetries ?? MAX_RETRIES;
+    let lastError: unknown;
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        const controller = new AbortController();
+        const timer = timeoutMs > 0 ? setTimeout(() => controller.abort(), timeoutMs) : undefined;
+        try {
+            const res = await fetch(input, { ...init, signal: controller.signal });
+            if (res.ok || !RETRYABLE_STATUS.has(res.status) || attempt === maxRetries) return res;
+            lastError = new Error(`HTTP ${res.status}`);
+        } catch (err: any) {
+            if (err?.name === 'AbortError') {
+                lastError = new Error(`Request timed out after ${timeoutMs}ms`);
+            } else {
+                lastError = err;
+            }
+            if (attempt === maxRetries) break;
+        } finally {
+            if (timer) clearTimeout(timer);
+        }
+        await sleep(Math.min(1000 * 2 ** attempt, 8000));
+    }
+    throw lastError;
+}
+
 function uniqueUrls(values: Array<string | undefined>) {
     return Array.from(new Set(values.filter((value): value is string => Boolean(value))));
 }
@@ -692,7 +725,7 @@ async function enhancePromptWithOpenAICompatible(
             'Content-Type': 'application/json',
             Authorization: `Bearer ${apiKey}`,
         };
-    const response = await fetch(`${baseUrl}/chat/completions`, {
+    const response = await fetchWithRetry(`${baseUrl}/chat/completions`, {
         method: 'POST',
         headers,
         body: JSON.stringify({

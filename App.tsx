@@ -13,14 +13,15 @@ import { LayerPanel } from './components/LayerPanel';
 import { LayerPanelMinimizable } from './components/LayerPanelMinimizable';
 import { LayerToggleButton } from './components/LayerToggleButton';
 import { BoardPanel } from './components/BoardPanel';
-import type { Tool, Point, Element, ImageElement, PathElement, ShapeElement, TextElement, ArrowElement, UserEffect, LineElement, WheelAction, GroupElement, Board, VideoElement, AssetLibrary, AssetCategory, AssetItem, UserApiKey, ModelPreference, AIProvider, PromptEnhanceMode, CharacterLockProfile, WorkspaceMode, ChatAttachment } from './types';
+import type { Tool, Point, Element, ImageElement, PathElement, ShapeElement, TextElement, ArrowElement, UserEffect, LineElement, WheelAction, GroupElement, Board, VideoElement, AssetLibrary, AssetCategory, AssetItem, UserApiKey, ModelPreference, AIProvider, PromptEnhanceMode, CharacterLockProfile, WorkspaceMode, ChatAttachment, ThemeMode } from './types';
 import { AssetLibraryPanel } from './components/AssetLibraryPanel';
 import { InspirationPanel } from './components/InspirationPanel';
 import { RightPanel } from './components/RightPanel';
 import { AssetAddModal } from './components/AssetAddModal';
 import { loadAssetLibrary, addAsset, removeAsset, renameAsset } from './utils/assetStorage';
-import { editImage, generateImageFromText, generateVideo, setGeminiRuntimeConfig, enhancePromptWithGemini } from './services/geminiService';
-import { splitImageByBanana, runBananaImageAgent, setBananaRuntimeConfig } from './services/bananaService';
+import { editImage, generateImageFromText, generateVideo, enhancePromptWithGemini } from './services/geminiService';
+import { splitImageByBanana, runBananaImageAgent } from './services/bananaService';
+import { useApiKeys } from './hooks/useApiKeys';
 import { fileToDataUrl } from './utils/fileUtils';
 import { translations } from './translations';
 import { useCanvasBridge } from './components/useCanvasBridge';
@@ -370,15 +371,7 @@ const createNewBoard = (name: string): Board => {
     };
 };
 
-const DEFAULT_MODEL_PREFS: ModelPreference = {
-    textModel: 'gemini-2.5-pro',
-    imageModel: 'gemini-2.5-flash-image-preview',
-    videoModel: 'veo-2.0-generate-001',
-    agentModel: 'banana-vision-v1',
-};
 
-const IMAGE_MODEL_OPTIONS = ['gemini-2.5-flash-image-preview', 'imagen-4.0-generate-001'];
-const VIDEO_MODEL_OPTIONS = ['veo-2.0-generate-001'];
 
 const App: React.FC = () => {
     const [boards, setBoards] = useState<Board[]>(() => {
@@ -438,22 +431,34 @@ const App: React.FC = () => {
     const [language, setLanguage] = useState<'en' | 'zho'>('en');
     const [uiTheme, setUiTheme] = useState({ color: '#FFFFFF', opacity: 0.9 });
     const [buttonTheme, setButtonTheme] = useState({ color: '#111827', opacity: 1 });
-    const [userApiKeys, setUserApiKeys] = useState<UserApiKey[]>(() => {
-        try {
-            const raw = localStorage.getItem('userApiKeys.v1');
-            return raw ? JSON.parse(raw) : [];
-        } catch {
-            return [];
-        }
+    const [themeMode, setThemeMode] = useState<ThemeMode>(() => {
+        const saved = localStorage.getItem('themeMode.v1');
+        return (saved === 'light' || saved === 'dark' || saved === 'system') ? saved : 'light';
     });
-    const [modelPreference, setModelPreference] = useState<ModelPreference>(() => {
-        try {
-            const raw = localStorage.getItem('modelPreference.v1');
-            return raw ? { ...DEFAULT_MODEL_PREFS, ...JSON.parse(raw) } : DEFAULT_MODEL_PREFS;
-        } catch {
-            return DEFAULT_MODEL_PREFS;
-        }
+    const [systemTheme, setSystemTheme] = useState<'light' | 'dark'>(() => {
+        return window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
     });
+    const resolvedTheme: 'light' | 'dark' = themeMode === 'system' ? systemTheme : themeMode;
+
+    useEffect(() => {
+        const media = window.matchMedia('(prefers-color-scheme: dark)');
+        const handler = (event: MediaQueryListEvent) => setSystemTheme(event.matches ? 'dark' : 'light');
+        media.addEventListener('change', handler);
+        return () => media.removeEventListener('change', handler);
+    }, []);
+
+    useEffect(() => {
+        localStorage.setItem('themeMode.v1', themeMode);
+        document.documentElement.dataset.theme = resolvedTheme;
+    }, [themeMode, resolvedTheme]);
+
+    const {
+        userApiKeys,
+        clearKeysOnExit, setClearKeysOnExit,
+        modelPreference, setModelPreference,
+        dynamicModelOptions, usageSummaryMap,
+        handleAddApiKey, handleDeleteApiKey, handleUpdateApiKey, handleSetDefaultApiKey,
+    } = useApiKeys(isSettingsPanelOpen);
     
     const [userEffects, setUserEffects] = useState<UserEffect[]>(() => {
         try {
@@ -517,16 +522,6 @@ const App: React.FC = () => {
     }, [userEffects]);
 
     useEffect(() => {
-        try { localStorage.setItem('userApiKeys.v1', JSON.stringify(userApiKeys)); }
-        catch (e) { console.error('localStorage quota exceeded (userApiKeys)', e); }
-    }, [userApiKeys]);
-
-    useEffect(() => {
-        try { localStorage.setItem('modelPreference.v1', JSON.stringify(modelPreference)); }
-        catch (e) { console.error('localStorage quota exceeded (modelPreference)', e); }
-    }, [modelPreference]);
-
-    useEffect(() => {
         try { localStorage.setItem('characterLocks.v1', JSON.stringify(characterLocks)); }
         catch (e) { console.error('localStorage quota exceeded (characterLocks)', e); }
     }, [characterLocks]);
@@ -545,66 +540,12 @@ const App: React.FC = () => {
         }
     }, [characterLocks, activeCharacterLockId]);
 
-    const getDefaultKeyByProvider = useCallback((provider: AIProvider) => {
-        const byProvider = userApiKeys.filter(key => key.provider === provider);
-        return byProvider.find(key => key.isDefault) || byProvider[0];
-    }, [userApiKeys]);
-
-    useEffect(() => {
-        const googleKey = getDefaultKeyByProvider('google');
-        const bananaKey = getDefaultKeyByProvider('banana');
-        setGeminiRuntimeConfig({
-            textApiKey: googleKey?.key,
-            imageApiKey: googleKey?.key,
-            videoApiKey: googleKey?.key,
-            textModel: modelPreference.textModel,
-            imageModel: modelPreference.imageModel.startsWith('gemini') ? modelPreference.imageModel : undefined,
-            textToImageModel: modelPreference.imageModel.startsWith('imagen') ? modelPreference.imageModel : undefined,
-            videoModel: modelPreference.videoModel.startsWith('veo') ? modelPreference.videoModel : undefined,
-        });
-        setBananaRuntimeConfig({
-            apiKey: bananaKey?.key,
-            splitUrl: bananaKey?.baseUrl ? `${bananaKey.baseUrl.replace(/\/$/, '')}/split-layers` : undefined,
-            agentUrl: bananaKey?.baseUrl ? `${bananaKey.baseUrl.replace(/\/$/, '')}/agent` : undefined,
-        });
-    }, [getDefaultKeyByProvider, modelPreference]);
-
     const handleAddUserEffect = useCallback((effect: UserEffect) => {
         setUserEffects(prev => [...prev, effect]);
     }, []);
 
     const handleDeleteUserEffect = useCallback((id: string) => {
         setUserEffects(prev => prev.filter(effect => effect.id !== id));
-    }, []);
-
-    const handleAddApiKey = useCallback((payload: Omit<UserApiKey, 'id' | 'createdAt' | 'updatedAt'>) => {
-        const now = Date.now();
-        const nextKey: UserApiKey = {
-            ...payload,
-            id: generateId(),
-            createdAt: now,
-            updatedAt: now,
-        };
-        setUserApiKeys(prev => {
-            const sameProvider = prev.filter(k => k.provider === payload.provider);
-            const isFirstOfProvider = sameProvider.length === 0;
-            const withDefault = (payload.isDefault || isFirstOfProvider)
-                ? prev.map(k => k.provider === payload.provider ? { ...k, isDefault: false } : k)
-                : prev;
-            return [{ ...nextKey, isDefault: payload.isDefault || isFirstOfProvider }, ...withDefault];
-        });
-    }, []);
-
-    const handleDeleteApiKey = useCallback((id: string) => {
-        setUserApiKeys(prev => prev.filter(k => k.id !== id));
-    }, []);
-
-    const handleSetDefaultApiKey = useCallback((id: string) => {
-        setUserApiKeys(prev => {
-            const target = prev.find(k => k.id === id);
-            if (!target) return prev;
-            return prev.map(k => k.provider === target.provider ? { ...k, isDefault: k.id === id } : k);
-        });
     }, []);
 
     const selectedSingleImage = useMemo<ImageElement | null>(() => {
@@ -2518,22 +2459,24 @@ const App: React.FC = () => {
             <CanvasSettings 
                 isOpen={isSettingsPanelOpen} 
                 onClose={() => setIsSettingsPanelOpen(false)} 
-                canvasBackgroundColor={canvasBackgroundColor} 
-                onCanvasBackgroundColorChange={handleCanvasBackgroundColorChange}
                 language={language}
                 setLanguage={setLanguage}
-                uiTheme={uiTheme}
-                setUiTheme={setUiTheme}
-                buttonTheme={buttonTheme}
-                setButtonTheme={setButtonTheme}
+                themeMode={themeMode}
+                resolvedTheme={resolvedTheme}
+                setThemeMode={setThemeMode}
                 wheelAction={wheelAction}
                 setWheelAction={setWheelAction}
                 userApiKeys={userApiKeys}
                 onAddApiKey={handleAddApiKey}
                 onDeleteApiKey={handleDeleteApiKey}
+                onUpdateApiKey={handleUpdateApiKey}
                 onSetDefaultApiKey={handleSetDefaultApiKey}
                 modelPreference={modelPreference}
                 setModelPreference={setModelPreference}
+                clearKeysOnExit={clearKeysOnExit}
+                setClearKeysOnExit={setClearKeysOnExit}
+                usageSummary={usageSummaryMap}
+                dynamicModelOptions={dynamicModelOptions}
                 t={t}
             />
             {workspaceMode === 'whiteboard' && (
@@ -3029,8 +2972,8 @@ const App: React.FC = () => {
                             setVideoAspectRatio={setVideoAspectRatio}
                             selectedImageModel={modelPreference.imageModel}
                             selectedVideoModel={modelPreference.videoModel}
-                            imageModelOptions={IMAGE_MODEL_OPTIONS}
-                            videoModelOptions={VIDEO_MODEL_OPTIONS}
+                            imageModelOptions={dynamicModelOptions.image}
+                            videoModelOptions={dynamicModelOptions.video}
                             onImageModelChange={(model) => setModelPreference(prev => ({ ...prev, imageModel: model }))}
                             onVideoModelChange={(model) => setModelPreference(prev => ({ ...prev, videoModel: model }))}
                             canvasElements={elements}

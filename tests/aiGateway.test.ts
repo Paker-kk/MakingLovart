@@ -1,6 +1,5 @@
 /**
  * aiGateway 单元测试 — 验证 inferProviderFromModel 模型名称→Provider 推断逻辑
- * 覆盖所有 8 个 provider：google, openai, anthropic, stability, qwen, banana, runninghub, custom
  */
 import { describe, it, expect } from 'vitest';
 import { inferProviderFromModel } from '../services/aiGateway';
@@ -23,9 +22,9 @@ describe('inferProviderFromModel', () => {
         expect(inferProviderFromModel('claude-3.5-sonnet')).toBe('anthropic');
     });
 
-    it('识别 Stability 模型', () => {
-        expect(inferProviderFromModel('sdxl-turbo')).toBe('stability');
-        expect(inferProviderFromModel('stable-diffusion-xl-1024')).toBe('stability');
+    it('Stability 模型回退到 custom (provider 已移除)', () => {
+        expect(inferProviderFromModel('sdxl-turbo')).toBe('custom');
+        expect(inferProviderFromModel('stable-diffusion-xl-1024')).toBe('custom');
     });
 
     it('识别 Qwen 模型', () => {
@@ -36,8 +35,8 @@ describe('inferProviderFromModel', () => {
         expect(inferProviderFromModel('banana-vision-agent')).toBe('banana');
     });
 
-    it('识别 RunningHub 模型', () => {
-        expect(inferProviderFromModel('runninghub-image')).toBe('runninghub');
+    it('RunningHub 自定义模型回退到 custom', () => {
+        expect(inferProviderFromModel('runninghub-image')).toBe('custom');
     });
 
     it('未知模型回退到 custom', () => {
