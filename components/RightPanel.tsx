@@ -1,179 +1,383 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import type { AssetCategory, AssetItem, AssetLibrary, Element, Tool } from '../types';
+import type { AssetCategory, AssetItem, AssetLibrary, GenerationHistoryItem, UserApiKey } from '../types';
+import { AgentChatPanel } from './AgentChatPanel';
+import { rhGetWebAppNodes, rhRunWebApp, rhUploadWebAppDataUrl, type RHWebAppNodeInfo, type RHWebAppOutputItem, type RHWebAppTaskStatus } from '../services/runningHubService';
+
+type RightPanelTab = 'history' | 'inspiration' | 'agent' | 'runningHub';
 
 interface RightPanelProps {
+    theme: 'light' | 'dark';
     isMinimized: boolean;
     onToggleMinimize: () => void;
+    outerGap: number;
+    defaultWidth: number;
+    minWidth: number;
+    widthCap: number;
+    compactMode: boolean;
     library: AssetLibrary;
+    textModel: string;
+    getApiKeyForModel: (model: string) => UserApiKey | undefined;
+    onAgentFinalPrompt?: (prompt: string) => void;
+    onAgentGenerateImage?: (prompt: string) => void;
+    generationHistory: GenerationHistoryItem[];
     onRemove: (category: AssetCategory, id: string) => void;
     onRename: (category: AssetCategory, id: string, name: string) => void;
-    onGenerate: (prompt: string) => void;
     onWidthChange?: (width: number) => void;
-    embedded?: boolean;
-    isCompact?: boolean;
-    compactBottomInset?: number;
-    selectedElements?: Element[];
-    activeTool?: Tool;
-    zoom?: number;
-    drawingOptions?: { strokeColor: string; strokeWidth: number };
-    onElementUpdate?: (id: string, updates: Partial<Element>) => void;
-    onAlignSelection?: (alignment: 'left' | 'center' | 'right' | 'top' | 'middle' | 'bottom') => void;
+    onReversePrompt?: (imageDataUrl: string, mimeType: string, width?: number, height?: number) => void;
 }
 
-type RightPanelTab = 'chat' | 'inspect' | 'library';
-
-const categoryOptions: Array<{ value: AssetCategory; label: string }> = [
-    { value: 'character', label: '角色' },
-    { value: 'scene', label: '场景' },
-    { value: 'prop', label: '道具' },
-];
-
-const skillOptions = [
-    '社媒轮播图',
-    '社交媒体',
-    'Logo 与品牌',
-    '分镜故事板',
-    '营销宣传册',
-    '亚马逊产品图',
-];
-
-const inputShellClass =
-    'w-full rounded-2xl border border-neutral-200 bg-white px-3 py-2 text-[13px] text-neutral-800 outline-none transition-colors focus:border-neutral-300';
-
-function getElementLabel(element: Element): string {
-    if (element.name?.trim()) return element.name;
-    if (element.type === 'shape') {
-        const labels = { rectangle: '矩形', circle: '圆形', triangle: '三角形' };
-        return labels[element.shapeType];
-    }
-
-    const labels: Record<Element['type'], string> = {
-        image: '图片',
-        video: '视频',
-        shape: '形状',
-        text: '文本',
-        path: '路径',
-        group: '分组',
-        arrow: '箭头',
-        line: '线条',
-    };
-    return labels[element.type];
-}
-
-function hasSize(element: Element): element is Extract<Element, { width: number; height: number }> {
-    return 'width' in element && 'height' in element;
-}
-
-function hasStroke(element: Element): element is Extract<Element, { strokeColor: string; strokeWidth: number }> {
-    return 'strokeColor' in element && 'strokeWidth' in element;
-}
-
-const NumberField: React.FC<{
-    label: string;
-    value: number;
-    disabled?: boolean;
-    onCommit?: (value: number) => void;
-}> = ({ label, value, disabled = false, onCommit }) => {
-    const [draft, setDraft] = useState(String(Math.round(value)));
-
-    useEffect(() => {
-        setDraft(String(Math.round(value)));
-    }, [value]);
-
-    return (
-        <label className="block">
-            <div className="mb-1 text-[11px] uppercase tracking-[0.14em] text-neutral-400">{label}</div>
-            <input
-                value={draft}
-                disabled={disabled}
-                onChange={(event) => setDraft(event.target.value)}
-                onBlur={() => {
-                    const next = Number(draft);
-                    if (Number.isFinite(next)) onCommit?.(next);
-                    else setDraft(String(Math.round(value)));
-                }}
-                onKeyDown={(event) => {
-                    if (event.key === 'Enter') {
-                        const next = Number(draft);
-                        if (Number.isFinite(next)) onCommit?.(next);
-                    }
-                    if (event.key === 'Escape') {
-                        setDraft(String(Math.round(value)));
-                    }
-                }}
-                className={`${inputShellClass} ${disabled ? 'cursor-not-allowed bg-neutral-50 text-neutral-400' : ''}`}
-            />
-        </label>
-    );
+const CATEGORY_LABELS: Record<AssetCategory, string> = {
+    character: '角色',
+    scene: '场景',
+    prop: '道具',
 };
 
-const AlignButtons: React.FC<{
-    disabled: boolean;
-    onAlign?: (alignment: 'left' | 'center' | 'right' | 'top' | 'middle' | 'bottom') => void;
-}> = ({ disabled, onAlign }) => {
-    const items: Array<{ id: 'left' | 'center' | 'right' | 'top' | 'middle' | 'bottom'; label: string }> = [
-        { id: 'left', label: '左' },
-        { id: 'center', label: '中' },
-        { id: 'right', label: '右' },
-        { id: 'top', label: '上' },
-        { id: 'middle', label: '中线' },
-        { id: 'bottom', label: '下' },
-    ];
+const CategoryTabs: React.FC<{ value: AssetCategory; onChange: (c: AssetCategory) => void; isDark?: boolean }> = ({ value, onChange, isDark }) => (
+    <div className="inline-flex items-center gap-3">
+        {(Object.keys(CATEGORY_LABELS) as AssetCategory[]).map(category => (
+            <button
+                key={category}
+                type="button"
+                onClick={() => onChange(category)}
+                className={`border-b px-0 py-2 text-xs font-medium transition-all ${
+                    value === category
+                        ? isDark ? 'border-[#F3F4F6] text-[#F3F4F6]' : 'border-neutral-900 text-neutral-900'
+                        : isDark ? 'border-transparent text-[#667085] hover:text-[#D0D5DD]' : 'border-transparent text-neutral-500 hover:text-neutral-800'
+                }`}
+            >
+                {CATEGORY_LABELS[category]}
+            </button>
+        ))}
+    </div>
+);
+
+const EmptyHistory: React.FC<{ isDark?: boolean }> = ({ isDark }) => (
+    <div className={`flex flex-1 items-center justify-center rounded-2xl border border-dashed px-6 py-10 text-center ${
+        isDark ? 'border-[#2A3140] bg-[#161A22]' : 'border-neutral-200 bg-neutral-50'
+    }`}>
+        <div>
+            <div className={`mx-auto flex h-12 w-12 items-center justify-center rounded-xl ${
+                isDark ? 'bg-[#1B2029] text-[#667085]' : 'bg-white text-neutral-300 shadow-sm'
+            }`}>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                    <rect x="3" y="3" width="18" height="18" rx="3" />
+                    <circle cx="8.5" cy="8.5" r="1.5" />
+                    <path d="M21 15l-5-5L5 21" />
+                </svg>
+            </div>
+            <p className={`mt-3 text-sm font-medium ${isDark ? 'text-[#D0D5DD]' : 'text-neutral-700'}`}>还没有历史生成内容</p>
+            <p className={`mt-1 text-xs ${isDark ? 'text-[#667085]' : 'text-neutral-500'}`}>新的图片生成后会自动保存到本地，并显示在这里。</p>
+        </div>
+    </div>
+);
+
+/**
+ * RunningHub WebApp 面板 — AI 应用工作流接入
+ *
+ * 用户输入 API Key + WebApp ID → 获取可修改节点 → 修改参数 → 提交任务 → 显示结果
+ */
+const RunningHubWebAppPanel: React.FC<{ theme: 'light' | 'dark'; compactMode: boolean }> = ({ theme, compactMode }) => {
+    const isDark = theme === 'dark';
+    const [apiKey, setApiKey] = useState(() => localStorage.getItem('rh_webapp_apikey') || '');
+    const [webappId, setWebappId] = useState(() => localStorage.getItem('rh_webapp_id') || '');
+    const [nodes, setNodes] = useState<RHWebAppNodeInfo[]>([]);
+    const [loading, setLoading] = useState(false);
+    const [error, setError] = useState<string | null>(null);
+    const [taskStatus, setTaskStatus] = useState<RHWebAppTaskStatus | null>(null);
+    const [outputs, setOutputs] = useState<RHWebAppOutputItem[]>([]);
+
+    const inputClass = `w-full rounded-xl border px-3 py-2 text-xs outline-none transition ${
+        isDark
+            ? 'border-[#2A3140] bg-[#161A22] text-[#F3F4F6] placeholder:text-[#667085] focus:border-[#4B5B78]'
+            : 'border-neutral-200 bg-white text-neutral-900 placeholder:text-neutral-400 focus:border-neutral-400'
+    }`;
+
+    const btnClass = `rounded-lg border px-4 py-2 text-xs font-semibold transition disabled:opacity-50 disabled:cursor-not-allowed ${
+        isDark
+            ? 'border-[#2A3140] bg-[#161A22] text-[#F3F4F6] hover:border-[#4B5B78] hover:bg-[#1B2029]'
+            : 'border-neutral-200 bg-white text-neutral-800 hover:border-neutral-300 hover:bg-neutral-50'
+    }`;
+
+    // 持久化 apiKey & webappId
+    useEffect(() => { localStorage.setItem('rh_webapp_apikey', apiKey); }, [apiKey]);
+    useEffect(() => { localStorage.setItem('rh_webapp_id', webappId); }, [webappId]);
+
+    // 获取节点列表
+    const handleFetchNodes = async () => {
+        if (!apiKey.trim() || !webappId.trim()) return;
+        setLoading(true);
+        setError(null);
+        setNodes([]);
+        try {
+            const list = await rhGetWebAppNodes(apiKey.trim(), webappId.trim());
+            setNodes(list);
+        } catch (e) {
+            setError(e instanceof Error ? e.message : '获取节点失败');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    // 修改节点值
+    const handleNodeValueChange = (nodeId: string, fieldName: string, newValue: string) => {
+        setNodes(prev => prev.map(n =>
+            n.nodeId === nodeId && n.fieldName === fieldName
+                ? { ...n, fieldValue: newValue }
+                : n
+        ));
+    };
+
+    // 提交任务
+    const handleSubmit = async () => {
+        if (!apiKey.trim() || !webappId.trim() || nodes.length === 0) return;
+        setLoading(true);
+        setError(null);
+        setTaskStatus('QUEUED');
+        setOutputs([]);
+        try {
+            const result = await rhRunWebApp(
+                apiKey.trim(),
+                webappId.trim(),
+                nodes,
+                (status) => setTaskStatus(status),
+            );
+            setOutputs(result);
+            setTaskStatus('SUCCESS');
+        } catch (e) {
+            setError(e instanceof Error ? e.message : '任务执行失败');
+            setTaskStatus('FAILED');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const statusLabel: Record<RHWebAppTaskStatus, string> = {
+        QUEUED: '⏳ 排队中...',
+        RUNNING: '⚡ 运行中...',
+        SUCCESS: '✅ 完成',
+        FAILED: '❌ 失败',
+        UNKNOWN: '❓ 未知',
+    };
 
     return (
-        <div className="grid grid-cols-6 gap-2">
-            {items.map(item => (
-                <button
-                    key={item.id}
-                    type="button"
-                    disabled={disabled}
-                    onClick={() => onAlign?.(item.id)}
-                    className="rounded-xl border border-neutral-200 bg-white px-2 py-2 text-xs text-neutral-600 transition-colors hover:bg-neutral-50 hover:text-neutral-900 disabled:opacity-35"
+        <div className={`flex h-full flex-col ${compactMode ? 'gap-3 p-3' : 'gap-4 p-4'} overflow-y-auto`}>
+            {/* 标题 */}
+            <div>
+                <h3 className={`text-sm font-bold ${isDark ? 'text-[#F3F4F6]' : 'text-neutral-900'}`}>
+                    🚀 RunningHub AI 应用
+                </h3>
+                <p className={`mt-1 text-xs ${isDark ? 'text-[#667085]' : 'text-neutral-500'}`}>
+                    接入 RunningHub WebApp 工作流，输入 WebApp ID 即可调用。
+                </p>
+            </div>
+
+            {/* API Key */}
+            <div>
+                <label className={`mb-1.5 block text-[11px] font-semibold uppercase tracking-wider ${isDark ? 'text-[#98A2B3]' : 'text-neutral-500'}`}>
+                    API Key
+                </label>
+                <input
+                    value={apiKey}
+                    onChange={e => setApiKey(e.target.value)}
+                    type="password"
+                    placeholder="粘贴 RunningHub API Key"
+                    className={inputClass}
+                />
+                <a
+                    href="https://www.runninghub.cn/enterprise-api/sharedApi"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mt-1 block text-[10px] text-blue-500 hover:underline"
                 >
-                    {item.label}
+                    获取 API Key ↗
+                </a>
+            </div>
+
+            {/* WebApp ID */}
+            <div>
+                <label className={`mb-1.5 block text-[11px] font-semibold uppercase tracking-wider ${isDark ? 'text-[#98A2B3]' : 'text-neutral-500'}`}>
+                    WebApp ID
+                </label>
+                <input
+                    value={webappId}
+                    onChange={e => setWebappId(e.target.value)}
+                    placeholder="如: 1937084629516193794"
+                    className={inputClass}
+                />
+                <p className={`mt-1 text-[10px] ${isDark ? 'text-[#667085]' : 'text-neutral-400'}`}>
+                    WebApp 链接末尾的数字，如 runninghub.cn/ai-detail/<strong>1937...</strong>
+                </p>
+            </div>
+
+            {/* 获取节点 */}
+            <button
+                type="button"
+                onClick={handleFetchNodes}
+                disabled={loading || !apiKey.trim() || !webappId.trim()}
+                className={btnClass}
+            >
+                {loading && nodes.length === 0 && !taskStatus ? '获取中...' : '获取工作流节点'}
+            </button>
+
+            {/* 错误提示 */}
+            {error && (
+                <div className={`rounded-xl px-3 py-2 text-xs ${isDark ? 'bg-red-900/30 text-red-300' : 'bg-red-50 text-red-600'}`}>
+                    ✗ {error}
+                </div>
+            )}
+
+            {/* 节点列表 */}
+            {nodes.length > 0 && (
+                <div className={`rounded-xl border ${isDark ? 'border-[#2A3140]' : 'border-neutral-200'}`}>
+                    <div className={`px-3 py-2 text-[11px] font-semibold ${isDark ? 'bg-[#1B2029] text-[#98A2B3]' : 'bg-neutral-50 text-neutral-500'} rounded-t-xl`}>
+                        可修改节点 ({nodes.length})
+                    </div>
+                    <div className="max-h-[300px] overflow-y-auto divide-y divide-neutral-100">
+                        {nodes.map((node, i) => (
+                            <div key={`${node.nodeId}-${node.fieldName}-${i}`} className={`px-3 py-2.5 ${isDark ? 'divide-[#2A3140]' : ''}`}>
+                                <div className="flex items-center justify-between mb-1">
+                                    <span className={`text-[11px] font-medium ${isDark ? 'text-[#D0D5DD]' : 'text-neutral-700'}`}>
+                                        {node.description || node.nodeName}
+                                    </span>
+                                    <span className={`rounded px-1.5 py-0.5 text-[9px] font-mono ${
+                                        isDark ? 'bg-[#1B2029] text-[#667085]' : 'bg-neutral-100 text-neutral-400'
+                                    }`}>
+                                        {node.fieldType}
+                                    </span>
+                                </div>
+                                {node.fieldType === 'IMAGE' || node.fieldType === 'AUDIO' || node.fieldType === 'VIDEO' ? (
+                                    <div className={`text-[10px] italic ${isDark ? 'text-[#667085]' : 'text-neutral-400'}`}>
+                                        📎 {node.fieldValue || '未设置'}
+                                    </div>
+                                ) : (
+                                    <input
+                                        value={node.fieldValue}
+                                        onChange={e => handleNodeValueChange(node.nodeId, node.fieldName, e.target.value)}
+                                        className={`${inputClass} mt-0.5`}
+                                        placeholder={`输入 ${node.fieldName}`}
+                                    />
+                                )}
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+
+            {/* 提交按钮 */}
+            {nodes.length > 0 && (
+                <button
+                    type="button"
+                    onClick={handleSubmit}
+                    disabled={loading}
+                    className={btnClass + ' w-full'}
+                >
+                    {loading && taskStatus ? statusLabel[taskStatus] || '处理中...' : '▶ 提交任务'}
                 </button>
-            ))}
+            )}
+
+            {/* 输出结果 */}
+            {outputs.length > 0 && (
+                <div className={`rounded-xl border ${isDark ? 'border-green-800 bg-green-900/20' : 'border-green-200 bg-green-50'} p-3`}>
+                    <div className={`mb-2 text-xs font-semibold ${isDark ? 'text-green-300' : 'text-green-700'}`}>
+                        🎉 生成结果
+                    </div>
+                    {outputs.map((out, i) => (
+                        <a
+                            key={i}
+                            href={out.fileUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="mb-1 block truncate text-xs text-blue-500 hover:underline"
+                        >
+                            {out.fileUrl}
+                        </a>
+                    ))}
+                </div>
+            )}
         </div>
     );
 };
 
 export const RightPanel: React.FC<RightPanelProps> = ({
+    theme,
     isMinimized,
     onToggleMinimize,
+    outerGap,
+    defaultWidth,
+    minWidth,
+    widthCap,
+    compactMode,
     library,
+    generationHistory,
     onRemove,
     onRename,
-    onGenerate,
     onWidthChange,
-    embedded = false,
-    isCompact = false,
-    compactBottomInset = 8,
-    selectedElements = [],
-    activeTool = 'select',
-    zoom = 1,
-    drawingOptions = { strokeColor: '#111827', strokeWidth: 5 },
-    onElementUpdate,
-    onAlignSelection,
+    textModel,
+    getApiKeyForModel,
+    onAgentFinalPrompt,
+    onAgentGenerateImage,
+    onReversePrompt,
 }) => {
-    const [activeTab, setActiveTab] = useState<RightPanelTab>('chat');
+    const isDark = theme === 'dark';
+    const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
+    const [activeTab, setActiveTab] = useState<RightPanelTab>('agent');
     const [category, setCategory] = useState<AssetCategory>('character');
-    const [quickPrompt, setQuickPrompt] = useState('');
     const [editingId, setEditingId] = useState<string | null>(null);
     const [editingName, setEditingName] = useState('');
-    const editInputRef = useRef<HTMLInputElement>(null);
-    const desktopPanelWidth = 360;
+    const [panelWidth, setPanelWidth] = useState(() => {
+        const saved = localStorage.getItem('rightPanelWidth');
+        return saved ? parseInt(saved, 10) : defaultWidth;
+    });
+    const [isResizing, setIsResizing] = useState(false);
+    const [resizeStartX, setResizeStartX] = useState(0);
+    const [resizeStartWidth, setResizeStartWidth] = useState(380);
 
-    const items = library[category];
-    const assetCount = useMemo(
-        () => library.character.length + library.scene.length + library.prop.length,
-        [library]
-    );
-    const singleSelection = selectedElements.length === 1 ? selectedElements[0] : null;
+    const editInputRef = useRef<HTMLInputElement>(null);
+
+    const items = useMemo(() => library[category], [category, library]);
 
     useEffect(() => {
-        if (!onWidthChange) return;
-        onWidthChange(embedded ? desktopPanelWidth : (isMinimized ? 0 : desktopPanelWidth));
-    }, [desktopPanelWidth, embedded, isMinimized, onWidthChange]);
+        const handleResize = () => setViewportWidth(window.innerWidth);
+        window.addEventListener('resize', handleResize);
+        return () => window.removeEventListener('resize', handleResize);
+    }, []);
+
+    useEffect(() => {
+        const maxWidth = Math.min(widthCap, viewportWidth - outerGap * 2);
+        const safeMinWidth = Math.min(minWidth, maxWidth);
+        setPanelWidth(prev => {
+            const candidate = Number.isNaN(prev) ? defaultWidth : prev;
+            return Math.min(maxWidth, Math.max(safeMinWidth, candidate));
+        });
+    }, [defaultWidth, minWidth, outerGap, viewportWidth, widthCap]);
+
+    useEffect(() => {
+        localStorage.setItem('rightPanelWidth', panelWidth.toString());
+    }, [panelWidth]);
+
+    useEffect(() => {
+        onWidthChange?.(isMinimized ? 2 : panelWidth);
+    }, [isMinimized, onWidthChange, panelWidth]);
+
+    useEffect(() => {
+        if (!isResizing) return;
+
+        const handlePointerMove = (event: PointerEvent) => {
+            const dx = resizeStartX - event.clientX;
+            const nextMinWidth = Math.min(minWidth, widthCap, window.innerWidth - outerGap * 2);
+            const maxWidth = Math.min(widthCap, window.innerWidth - outerGap * 2);
+            setPanelWidth(Math.min(maxWidth, Math.max(nextMinWidth, resizeStartWidth + dx)));
+        };
+
+        const handlePointerUp = () => setIsResizing(false);
+
+        window.addEventListener('pointermove', handlePointerMove);
+        window.addEventListener('pointerup', handlePointerUp);
+        return () => {
+            window.removeEventListener('pointermove', handlePointerMove);
+            window.removeEventListener('pointerup', handlePointerUp);
+        };
+    }, [isResizing, minWidth, outerGap, resizeStartWidth, resizeStartX, widthCap]);
 
     useEffect(() => {
         if (editingId && editInputRef.current) {
@@ -182,336 +386,312 @@ export const RightPanel: React.FC<RightPanelProps> = ({
         }
     }, [editingId]);
 
-    useEffect(() => {
-        if (selectedElements.length > 0 && activeTab === 'chat') {
-            setActiveTab('inspect');
-        }
-    }, [activeTab, selectedElements.length]);
-
-    const handleGenerate = () => {
-        const nextPrompt = quickPrompt.trim();
-        if (!nextPrompt) return;
-        onGenerate(nextPrompt);
-        setQuickPrompt('');
+    const handleResizePointerDown = (event: React.PointerEvent) => {
+        if (event.pointerType === 'mouse' && event.button !== 0) return;
+        setIsResizing(true);
+        setResizeStartX(event.clientX);
+        setResizeStartWidth(panelWidth);
+        event.stopPropagation();
+        event.preventDefault();
     };
 
-    const handleDragStart = (event: React.DragEvent, item: AssetItem) => {
+    const handleLibraryDragStart = (event: React.DragEvent, item: AssetItem) => {
         event.dataTransfer.setData('text/plain', JSON.stringify({ __makingAsset: true, item }));
         event.dataTransfer.effectAllowed = 'copy';
     };
 
-    const updateSingle = (updates: Partial<Element>) => {
-        if (!singleSelection || !onElementUpdate) return;
-        onElementUpdate(singleSelection.id, updates);
+    const handleHistoryDragStart = (event: React.DragEvent, item: GenerationHistoryItem) => {
+        event.dataTransfer.setData(
+            'text/plain',
+            JSON.stringify({
+                __makingAsset: true,
+                item: {
+                    id: item.id,
+                    name: item.name || 'Generated',
+                    category: 'scene',
+                    dataUrl: item.dataUrl,
+                    mimeType: item.mimeType,
+                    width: item.width,
+                    height: item.height,
+                    createdAt: item.createdAt,
+                },
+            })
+        );
+        event.dataTransfer.effectAllowed = 'copy';
     };
 
-    const saveEdit = (itemId: string) => {
-        if (editingId !== itemId) return;
-        const nextName = editingName.trim();
-        if (nextName) onRename(category, itemId, nextName);
+    const handleDoubleClick = (item: AssetItem) => {
+        setEditingId(item.id);
+        setEditingName(item.name || '');
+    };
+
+    const handleSaveEdit = (itemId: string) => {
+        if (editingId === itemId && editingName.trim()) {
+            onRename(category, itemId, editingName.trim());
+        }
         setEditingId(null);
         setEditingName('');
     };
 
-    const floatingStyle: React.CSSProperties = isCompact
-        ? {
-              left: '8px',
-              right: '8px',
-              top: 'auto',
-              bottom: `${compactBottomInset}px`,
-              height: 'min(76vh, 720px)',
-              transform: isMinimized ? 'translateY(calc(100% + 14px))' : 'translateY(0)',
-              opacity: isMinimized ? 0 : 1,
-              pointerEvents: isMinimized ? 'none' : 'auto',
-          }
-        : {
-              top: '0px',
-              right: '0px',
-              bottom: '0px',
-              width: `${desktopPanelWidth}px`,
-              transform: isMinimized ? 'translateX(calc(100% + 16px))' : 'translateX(0)',
-              opacity: isMinimized ? 0 : 1,
-              pointerEvents: isMinimized ? 'none' : 'auto',
-          };
-
-    const shellClass = embedded
-        ? 'flex h-full min-h-0 flex-col border-l border-neutral-200 bg-white'
-        : 'fixed z-[40] flex flex-col overflow-hidden border-l border-neutral-200 bg-white shadow-[-20px_0_40px_rgba(15,23,42,0.08)] transition-all duration-300 ease-out';
+    const formatTime = (timestamp: number) =>
+        new Date(timestamp).toLocaleString('zh-CN', {
+            month: 'short',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+        });
 
     return (
         <>
-            {!embedded && !isCompact && (
-                <button
-                    type="button"
-                    onClick={onToggleMinimize}
-                    className={`fixed top-4 z-[46] inline-flex items-center gap-2 rounded-full border border-neutral-200 bg-white px-3 py-2 text-sm font-medium text-neutral-700 shadow-[0_12px_28px_rgba(15,23,42,0.08)] transition-all ${isMinimized ? 'right-4' : 'right-[18px]'}`}
-                >
-                    {isMinimized ? '打开对话栏' : '收起对话栏'}
-                </button>
-            )}
+            <button
+                type="button"
+                onClick={onToggleMinimize}
+                style={{
+                    top: `${outerGap}px`,
+                    right: `${outerGap}px`,
+                    opacity: isMinimized ? 1 : 0,
+                    pointerEvents: isMinimized ? 'auto' : 'none',
+                    transition: 'opacity 0.2s ease-out, transform 0.28s ease-out',
+                    transform: isMinimized ? 'translateY(0)' : 'translateY(-6px)',
+                }}
+                className={`theme-aware fixed z-20 flex h-10 w-10 items-center justify-center rounded-xl border shadow-sm ${
+                    isDark ? 'border-[#2A3140] bg-[#12151B] text-[#98A2B3] hover:text-white' : 'border-neutral-200 bg-white text-neutral-600 hover:text-neutral-900'
+                }`}
+                title="打开侧边栏"
+            >
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <rect x="3" y="3" width="18" height="18" rx="2" />
+                    <path d="M15 3v18" />
+                </svg>
+            </button>
 
-            <aside className={shellClass} style={embedded ? undefined : floatingStyle}>
-                <div className="border-b border-neutral-100 px-5 pb-4 pt-5">
-                    <div className="flex items-start justify-between gap-3">
-                        <div>
-                            <div className="text-[22px] font-semibold tracking-[-0.03em] text-neutral-900">
-                                {activeTab === 'inspect' ? '检查器' : activeTab === 'library' ? '素材库' : '新对话'}
-                            </div>
-                            <div className="mt-1 text-sm text-neutral-500">
-                                {activeTab === 'inspect'
-                                    ? '位置、尺寸、布局与样式'
-                                    : activeTab === 'library'
-                                        ? '拖拽素材到画布'
-                                        : '生成、绑定、继续创作'}
-                            </div>
-                        </div>
-                        <div className="rounded-full bg-neutral-100 px-3 py-1.5 text-sm text-neutral-600">
-                            {Math.round(zoom * 100)}%
-                        </div>
-                    </div>
+            <div
+                style={{
+                    top: `${outerGap}px`,
+                    bottom: `${outerGap}px`,
+                    right: `${outerGap}px`,
+                    width: `${panelWidth}px`,
+                    transform: isMinimized ? 'translateX(18px) scale(0.96)' : 'translateX(0) scale(1)',
+                    transformOrigin: 'right center',
+                    opacity: isMinimized ? 0 : 1,
+                    transition: 'transform 0.35s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s ease-out, width 0.25s ease-out',
+                    pointerEvents: isMinimized ? 'none' : 'auto',
+                }}
+                className={`compact-right-panel theme-aware fixed z-[30] flex flex-col overflow-hidden border shadow-xl backdrop-blur-xl ${
+                    compactMode ? 'rounded-[24px]' : 'rounded-[28px]'
+                } ${isDark ? 'border-[#2A3140] bg-[#12151B]/96' : 'border-neutral-200/60 bg-white/96'}`}
+            >
+                <div
+                    className={`absolute left-0 top-0 z-10 h-full cursor-ew-resize transition-colors hover:bg-blue-400/70 ${compactMode ? 'w-1' : 'w-1.5'}`}
+                    onPointerDown={handleResizePointerDown}
+                />
 
-                    <div className="mt-4 inline-flex rounded-full bg-neutral-100 p-1">
-                        {(['chat', 'inspect', 'library'] as RightPanelTab[]).map(tab => (
+                <div className={`flex items-center justify-between border-b ${isDark ? 'border-[#2A3140]' : 'border-neutral-200/60'} ${compactMode ? 'px-3 py-2' : 'px-4 py-2.5'}`}>
+                    <div className={`flex items-center gap-3 ${compactMode ? 'text-[12px]' : ''}`}>
+                        {([
+                            { key: 'agent' as RightPanelTab, label: 'Agent', icon: '🤖' },
+                            { key: 'history' as RightPanelTab, label: '历史', icon: null },
+                            { key: 'inspiration' as RightPanelTab, label: '素材库', icon: null },
+                            { key: 'runningHub' as RightPanelTab, label: 'RH', icon: '🚀' },
+                        ]).map(tab => (
                             <button
-                                key={tab}
+                                key={tab.key}
                                 type="button"
-                                onClick={() => setActiveTab(tab)}
-                                className={`rounded-full px-3 py-1.5 text-sm transition-colors ${activeTab === tab ? 'bg-white text-neutral-900 shadow-sm' : 'text-neutral-500 hover:text-neutral-900'}`}
+                                onClick={() => setActiveTab(tab.key)}
+                                className={`right-panel-tab ${activeTab === tab.key ? 'active' : ''} ${compactMode ? 'text-[12px]' : ''}`}
                             >
-                                {tab === 'chat' ? '对话' : tab === 'inspect' ? '检查器' : '素材库'}
+                                {tab.icon ? `${tab.icon} ${tab.label}` : tab.label}
                             </button>
                         ))}
                     </div>
+                    <button
+                        type="button"
+                        onClick={onToggleMinimize}
+                        className={`rounded-md border px-2 py-1.5 text-[11px] transition-colors ${isDark ? 'border-[#2A3140] text-[#667085] hover:border-[#4B5B78] hover:text-[#D0D5DD]' : 'border-neutral-200 text-neutral-400 hover:border-neutral-300 hover:text-neutral-700'}`}
+                        title="收起"
+                    >
+                        收起
+                    </button>
                 </div>
 
-                {activeTab === 'chat' && (
-                    <div className="flex min-h-0 flex-1 flex-col">
-                        <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-6 py-8 text-center">
-                            <div className="text-[18px] font-semibold text-neutral-900">试试这些 Lovart Skills</div>
-                            <div className="mt-8 grid w-full max-w-[320px] grid-cols-2 gap-3">
-                                {skillOptions.map(item => (
-                                    <button
-                                        key={item}
-                                        type="button"
-                                        onClick={() => setQuickPrompt(item)}
-                                        className="rounded-full border border-neutral-200 bg-white px-4 py-3 text-sm text-neutral-700 transition-colors hover:border-neutral-300 hover:bg-neutral-50"
-                                    >
-                                        {item}
-                                    </button>
-                                ))}
-                            </div>
-                        </div>
-
-                        <div className="border-t border-neutral-100 px-4 pb-4 pt-3">
-                            <div className="mb-3 rounded-[18px] border border-lime-200 bg-lime-50 px-4 py-3 text-sm text-lime-800">
-                                升级会员，免费使用 Nano Banana 2 365 天
-                            </div>
-                            <div className="rounded-[24px] border border-neutral-200 bg-neutral-50 p-4">
-                                <textarea
-                                    value={quickPrompt}
-                                    onChange={(event) => setQuickPrompt(event.target.value)}
-                                    placeholder='Start with an idea, or type "@" to mention'
-                                    className="h-24 w-full resize-none bg-transparent text-[15px] text-neutral-800 outline-none placeholder:text-neutral-400"
-                                    onKeyDown={(event) => {
-                                        if (event.key === 'Enter' && !event.shiftKey) {
-                                            event.preventDefault();
-                                            handleGenerate();
-                                        }
-                                    }}
-                                />
-                                <div className="mt-4 flex items-center justify-between gap-3">
-                                    <button type="button" className="inline-flex h-9 items-center justify-center rounded-full border border-blue-200 bg-blue-50 px-4 text-[15px] font-medium text-blue-700">
-                                        Agent
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={handleGenerate}
-                                        disabled={!quickPrompt.trim()}
-                                        className="inline-flex h-10 w-10 items-center justify-center rounded-full bg-neutral-900 text-white transition-colors hover:bg-neutral-700 disabled:opacity-40"
-                                    >
-                                        ↑
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                )}
-
-                {activeTab === 'inspect' && (
-                    <div className="min-h-0 flex-1 overflow-y-auto px-5 pb-5 pt-4">
-                        <div className="mb-5 rounded-[18px] border border-neutral-200 bg-neutral-50 px-4 py-3">
-                            <div className="text-sm font-medium text-neutral-900">
-                                {singleSelection
-                                    ? getElementLabel(singleSelection)
-                                    : selectedElements.length > 1
-                                        ? `选中 ${selectedElements.length} 个对象`
-                                        : 'sidebarPanel'}
-                            </div>
-                            <div className="mt-1 text-xs text-neutral-500">
-                                {singleSelection ? '单对象编辑模式' : '选择画布对象后，在这里编辑布局和属性'}
-                            </div>
-                        </div>
-
-                        <section className="border-t border-neutral-100 py-4">
-                            <div className="mb-3 text-sm font-medium text-neutral-900">Context</div>
-                            <div className="rounded-[16px] border border-neutral-200 bg-neutral-50 px-3 py-3 text-sm text-neutral-600">
-                                当前工具：<span className="text-neutral-900">{activeTool}</span>
-                                <span className="mx-2 text-neutral-300">•</span>
-                                画笔：<span className="text-neutral-900">{drawingOptions.strokeWidth}px</span>
-                            </div>
-                        </section>
-
-                        <section className="border-t border-neutral-100 py-4">
-                            <div className="mb-3 text-sm font-medium text-neutral-900">Alignment</div>
-                            <AlignButtons disabled={selectedElements.length < 2} onAlign={onAlignSelection} />
-                        </section>
-
-                        <section className="border-t border-neutral-100 py-4">
-                            <div className="mb-3 text-sm font-medium text-neutral-900">Position</div>
-                            {singleSelection ? (
-                                <div className="grid grid-cols-2 gap-3">
-                                    <NumberField label="X" value={singleSelection.x} onCommit={(value) => updateSingle({ x: value })} />
-                                    <NumberField label="Y" value={singleSelection.y} onCommit={(value) => updateSingle({ y: value })} />
-                                    <NumberField label="W" value={hasSize(singleSelection) ? singleSelection.width : 0} disabled={!hasSize(singleSelection)} onCommit={(value) => updateSingle({ width: Math.max(1, value) } as Partial<Element>)} />
-                                    <NumberField label="H" value={hasSize(singleSelection) ? singleSelection.height : 0} disabled={!hasSize(singleSelection)} onCommit={(value) => updateSingle({ height: Math.max(1, value) } as Partial<Element>)} />
-                                </div>
-                            ) : (
-                                <div className="rounded-[16px] border border-dashed border-neutral-200 bg-neutral-50 px-3 py-4 text-sm text-neutral-500">
-                                    选择单个对象后可编辑位置和尺寸，多选时可使用上方对齐工具。
-                                </div>
-                            )}
-                        </section>
-
-                        <section className="border-t border-neutral-100 py-4">
-                            <div className="mb-3 text-sm font-medium text-neutral-900">Appearance</div>
-                            <div className="rounded-[16px] border border-neutral-200 bg-neutral-50 p-3">
-                                {singleSelection?.type === 'shape' && (
-                                    <div className="grid grid-cols-2 gap-3">
-                                        <label className="block">
-                                            <div className="mb-1 text-[11px] uppercase tracking-[0.14em] text-neutral-400">Fill</div>
-                                            <input type="color" value={singleSelection.fillColor} onChange={(event) => updateSingle({ fillColor: event.target.value })} className="h-11 w-full cursor-pointer rounded-[12px] border border-neutral-200 bg-white p-1" />
-                                        </label>
-                                        <label className="block">
-                                            <div className="mb-1 text-[11px] uppercase tracking-[0.14em] text-neutral-400">Stroke</div>
-                                            <input type="color" value={singleSelection.strokeColor} onChange={(event) => updateSingle({ strokeColor: event.target.value })} className="h-11 w-full cursor-pointer rounded-[12px] border border-neutral-200 bg-white p-1" />
-                                        </label>
+                <div className="min-h-0 flex-1 overflow-hidden">
+                    {activeTab === 'history' && (
+                        <div className={`flex h-full min-h-0 flex-col ${compactMode ? 'gap-3 p-3' : 'gap-3 p-4'}`}>
+                            <div className="flex min-h-0 flex-1 flex-col">
+                                <div className="mb-3 flex items-center justify-between">
+                                    <div>
+                                        <h3 className={`text-sm font-semibold ${isDark ? 'text-[#F3F4F6]' : 'text-neutral-900'}`}>历史生成</h3>
+                                        <p className={`mt-0.5 text-xs ${isDark ? 'text-[#667085]' : 'text-neutral-500'}`}>自动保存到本地，可直接拖到画布。</p>
                                     </div>
-                                )}
+                                    <span className={`rounded-full px-2 py-0.5 text-[11px] font-medium tabular-nums ${isDark ? 'bg-[#1B2029] text-[#98A2B3]' : 'bg-neutral-100 text-neutral-500'}`}>
+                                        {generationHistory.length}
+                                    </span>
+                                </div>
 
-                                {singleSelection?.type === 'text' && (
-                                    <div className="grid grid-cols-2 gap-3">
-                                        <label className="block">
-                                            <div className="mb-1 text-[11px] uppercase tracking-[0.14em] text-neutral-400">Text Color</div>
-                                            <input type="color" value={singleSelection.fontColor} onChange={(event) => updateSingle({ fontColor: event.target.value })} className="h-11 w-full cursor-pointer rounded-[12px] border border-neutral-200 bg-white p-1" />
-                                        </label>
-                                        <NumberField label="Font Size" value={singleSelection.fontSize} onCommit={(value) => updateSingle({ fontSize: Math.max(8, value) })} />
-                                    </div>
-                                )}
-
-                                {singleSelection && hasStroke(singleSelection) && singleSelection.type !== 'shape' && singleSelection.type !== 'text' && (
-                                    <div className="grid grid-cols-2 gap-3">
-                                        <label className="block">
-                                            <div className="mb-1 text-[11px] uppercase tracking-[0.14em] text-neutral-400">Stroke</div>
-                                            <input type="color" value={singleSelection.strokeColor} onChange={(event) => updateSingle({ strokeColor: event.target.value })} className="h-11 w-full cursor-pointer rounded-[12px] border border-neutral-200 bg-white p-1" />
-                                        </label>
-                                        <NumberField label="Weight" value={singleSelection.strokeWidth} onCommit={(value) => updateSingle({ strokeWidth: Math.max(1, value) })} />
-                                    </div>
-                                )}
-
-                                {!singleSelection && (
-                                    <div className="text-sm text-neutral-500">选择一个对象后，这里会显示可编辑的样式属性。</div>
-                                )}
-                            </div>
-                        </section>
-                    </div>
-                )}
-
-                {activeTab === 'library' && (
-                    <div className="flex min-h-0 flex-1 flex-col">
-                        <div className="border-b border-neutral-100 px-4 py-3">
-                            <div className="inline-flex rounded-full bg-neutral-100 p-1">
-                                {categoryOptions.map(option => (
-                                    <button
-                                        key={option.value}
-                                        type="button"
-                                        onClick={() => setCategory(option.value)}
-                                        className={`rounded-full px-3 py-1.5 text-sm transition-colors ${category === option.value ? 'bg-white text-neutral-900 shadow-sm' : 'text-neutral-500'}`}
-                                    >
-                                        {option.label}
-                                    </button>
-                                ))}
-                            </div>
-                            <div className="mt-2 text-xs text-neutral-500">已收集 {assetCount} 个素材，可直接拖入画布</div>
-                        </div>
-
-                        <div className="min-h-0 flex-1 overflow-y-auto p-3">
-                            {items.length === 0 ? (
-                                <div className="flex h-full items-center justify-center text-sm text-neutral-500">暂时还没有素材</div>
-                            ) : (
-                                <div className="grid grid-cols-2 gap-3">
-                                    {items.map(item => (
-                                        <div
-                                            key={item.id}
-                                            className="group relative overflow-hidden rounded-[18px] border border-neutral-200 bg-neutral-50 shadow-sm"
-                                            draggable
-                                            onDragStart={(event) => handleDragStart(event, item)}
-                                        >
-                                            <img src={item.dataUrl} alt={item.name || ''} className="aspect-square w-full object-cover" />
-                                            {editingId === item.id ? (
-                                                <div className="absolute inset-x-2 bottom-2">
-                                                    <input
-                                                        ref={editInputRef}
-                                                        value={editingName}
-                                                        onChange={(event) => setEditingName(event.target.value)}
-                                                        onBlur={() => saveEdit(item.id)}
-                                                        onKeyDown={(event) => {
-                                                            if (event.key === 'Enter') saveEdit(item.id);
-                                                            if (event.key === 'Escape') {
-                                                                setEditingId(null);
-                                                                setEditingName('');
-                                                            }
-                                                        }}
-                                                        className="w-full rounded-xl border border-blue-300 bg-white px-2 py-1 text-xs text-neutral-900 outline-none"
-                                                    />
-                                                </div>
-                                            ) : (
-                                                <div className="absolute inset-0 opacity-0 transition-opacity group-hover:opacity-100">
-                                                    <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
-                                                    <div className="absolute bottom-2 left-2 right-2 flex items-end justify-between gap-2 text-white">
-                                                        <button
-                                                            type="button"
-                                                            onDoubleClick={() => {
-                                                                setEditingId(item.id);
-                                                                setEditingName(item.name || '');
-                                                            }}
-                                                            className="min-w-0 text-left"
-                                                        >
-                                                            <div className="truncate text-sm font-medium">{item.name || '未命名素材'}</div>
-                                                            <div className="text-[11px] text-white/70">{item.width} × {item.height}</div>
-                                                        </button>
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => onRemove(category, item.id)}
-                                                            className="rounded-full bg-white/20 p-2 text-white transition-colors hover:bg-white/30"
-                                                            title="删除素材"
-                                                        >
-                                                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                                                <path d="M3 6h18" />
-                                                                <path d="M8 6V4h8v2" />
-                                                                <path d="m19 6-1 14H6L5 6" />
-                                                            </svg>
-                                                        </button>
+                                <div className="min-h-0 flex-1 overflow-y-auto pr-0.5">
+                                    {generationHistory.length === 0 ? (
+                                        <EmptyHistory isDark={isDark} />
+                                    ) : (
+                                        <div className={`grid ${compactMode ? 'grid-cols-1 gap-2.5' : 'grid-cols-2 gap-2.5'}`}>
+                                            {generationHistory.map(item => (
+                                                <div
+                                                    key={item.id}
+                                                    className={`history-card group border ${
+                                                        isDark ? 'border-[#2A3140] bg-[#161A22]' : 'border-neutral-100 bg-white'
+                                                    }`}
+                                                    draggable
+                                                    onDragStart={event => handleHistoryDragStart(event, item)}
+                                                >
+                                                    <div className={`history-card-img m-1.5 ${isDark ? 'bg-[#1B2029]' : 'bg-neutral-50'}`}>
+                                                        <img
+                                                            src={item.dataUrl}
+                                                            alt={item.name || item.prompt}
+                                                            className={`w-full object-cover ${compactMode ? 'aspect-[4/3]' : 'aspect-square'}`}
+                                                        />
+                                                    </div>
+                                                    <div className="px-2.5 pb-2.5 pt-1">
+                                                        <p className={`line-clamp-2 text-xs font-medium leading-[1.4] ${isDark ? 'text-[#D0D5DD]' : 'text-neutral-800'}`}>
+                                                            {item.name || item.prompt}
+                                                        </p>
+                                                        <div className={`mt-1.5 flex items-center justify-between text-[10px] ${isDark ? 'text-[#667085]' : 'text-neutral-400'}`}>
+                                                            <span>{item.width}×{item.height}</span>
+                                                            <span>{formatTime(item.createdAt)}</span>
+                                                        </div>
                                                     </div>
                                                 </div>
-                                            )}
+                                            ))}
                                         </div>
-                                    ))}
+                                    )}
                                 </div>
-                            )}
+                            </div>
                         </div>
-                    </div>
-                )}
-            </aside>
+                    )}
+
+                    {activeTab === 'inspiration' && (
+                        <div className="flex h-full min-h-0 flex-col">
+                            <div className={`flex items-center justify-between border-b ${isDark ? 'border-[#2A3140]' : 'border-neutral-200/60'} ${compactMode ? 'px-3 py-2' : 'px-4 py-2.5'}`}>
+                                <CategoryTabs value={category} onChange={setCategory} isDark={isDark} />
+                                <span className={`text-[11px] tabular-nums ${isDark ? 'text-[#667085]' : 'text-neutral-500'}`}>{items.length} 项</span>
+                            </div>
+
+                            <div className={`min-h-0 flex-1 overflow-y-auto ${compactMode ? 'p-2.5' : 'p-3'}`}>
+                                {items.length === 0 ? (
+                                    <div className={`flex h-full items-center justify-center ${isDark ? 'text-[#667085]' : 'text-neutral-400'}`}>
+                                        <div className="text-center">
+                                            <svg className={`mx-auto mb-3 h-14 w-14 ${isDark ? 'opacity-30' : 'opacity-20'}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5">
+                                                <rect x="3" y="7" width="7" height="10" rx="1" />
+                                                <rect x="14" y="4" width="7" height="16" rx="1" />
+                                            </svg>
+                                            <p className="text-sm">暂无{CATEGORY_LABELS[category]}</p>
+                                            <p className="mt-1 text-xs opacity-70">可把历史生成内容拖到画布，或稍后继续扩展素材库。</p>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div className={`inspiration-grid ${compactMode ? 'compact' : ''}`}>
+                                        {items.map(item => (
+                                            <div
+                                                key={item.id}
+                                                className={`inspiration-item group relative cursor-grab border active:cursor-grabbing ${
+                                                    isDark ? 'border-[#2A3140] bg-[#161A22]' : 'border-neutral-100 bg-white'
+                                                }`}
+                                                draggable
+                                                onDragStart={event => handleLibraryDragStart(event, item)}
+                                            >
+                                                <img src={item.dataUrl} alt={item.name || ''} className={`w-full object-contain ${isDark ? 'bg-[#1B2029]' : 'bg-neutral-50'}`} />
+
+                                                {editingId === item.id ? (
+                                                    <div className="absolute inset-x-2 bottom-2 flex items-center gap-2">
+                                                        <input
+                                                            ref={editInputRef}
+                                                            type="text"
+                                                            value={editingName}
+                                                            onChange={event => setEditingName(event.target.value)}
+                                                            onBlur={() => handleSaveEdit(item.id)}
+                                                            onKeyDown={event => {
+                                                                if (event.key === 'Enter') {
+                                                                    event.preventDefault();
+                                                                    handleSaveEdit(item.id);
+                                                                } else if (event.key === 'Escape') {
+                                                                    setEditingId(null);
+                                                                    setEditingName('');
+                                                                }
+                                                            }}
+                                                            className={`min-w-0 flex-1 rounded-lg border px-2 py-1 text-xs outline-none shadow-lg ${
+                                                                isDark ? 'border-[#4B5B78] bg-[#161A22]/95 text-[#F3F4F6]' : 'border-blue-400 bg-white/95 text-neutral-900'
+                                                            }`}
+                                                            placeholder="输入名称"
+                                                            aria-label="素材名称"
+                                                            title="素材名称"
+                                                        />
+                                                    </div>
+                                                ) : (
+                                                    <div className="pointer-events-none absolute inset-0 opacity-0 transition-opacity group-hover:opacity-100">
+                                                        <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-black/20 to-transparent" />
+                                                        <div className="absolute bottom-2 left-2 right-2 flex items-end justify-between gap-2 text-white">
+                                                            <div className="pointer-events-auto min-w-0 cursor-text" onDoubleClick={() => handleDoubleClick(item)}>
+                                                                <div className="truncate text-xs font-medium">{item.name || '未命名'}</div>
+                                                                <div className="text-[10px] opacity-80">{item.width}×{item.height}</div>
+                                                            </div>
+                                                            {onReversePrompt && (
+                                                                <button
+                                                                    type="button"
+                                                                    className="pointer-events-auto rounded-lg bg-white/10 p-1 backdrop-blur transition-colors hover:bg-white/20"
+                                                                    title="反推 Prompt"
+                                                                    onClick={event => {
+                                                                        event.stopPropagation();
+                                                                        onReversePrompt(item.dataUrl, item.mimeType || 'image/png', item.width, item.height);
+                                                                    }}
+                                                                >
+                                                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-white">
+                                                                        <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                                                                        <polyline points="17 8 12 3 7 8" />
+                                                                        <line x1="12" y1="3" x2="12" y2="15" />
+                                                                    </svg>
+                                                                </button>
+                                                            )}
+                                                            <button
+                                                                type="button"
+                                                                className="pointer-events-auto rounded-lg bg-white/10 p-1 backdrop-blur transition-colors hover:bg-white/20"
+                                                                title="删除"
+                                                                onClick={event => {
+                                                                    event.stopPropagation();
+                                                                    onRemove(category, item.id);
+                                                                }}
+                                                            >
+                                                                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="text-white">
+                                                                    <polyline points="3 6 5 6 21 6" />
+                                                                    <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                                                                    <path d="M10 11v6" />
+                                                                    <path d="M14 11v6" />
+                                                                </svg>
+                                                            </button>
+                                                        </div>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    )}
+
+                    {activeTab === 'agent' && (
+                        <AgentChatPanel
+                            theme={theme}
+                            compactMode={compactMode}
+                            textModel={textModel}
+                            getApiKeyForModel={getApiKeyForModel}
+                            onFinalPrompt={onAgentFinalPrompt || (() => {})}
+                            onGenerateImage={onAgentGenerateImage || (() => {})}
+                        />
+                    )}
+
+                    {activeTab === 'runningHub' && (
+                        <RunningHubWebAppPanel theme={theme} compactMode={compactMode} />
+                    )}
+                </div>
+            </div>
         </>
     );
 };

@@ -1,7 +1,7 @@
 {
-  "name": "making",
+  "name": "flovart",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 4173",
@@ -10,10 +10,14 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
-    "mcp": "tsx mcp/server.ts"
+    "mcp": "tsx mcp/server.ts",
+    "tauri": "tauri",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build",
+    "ext:build": "node extension/build.mjs"
   },
   "dependencies": {
-    "@google/genai": "^1.17.0",
+    "@google/genai": "^1.48.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@tauri-apps/api": "^2.10.1",
     "@tauri-apps/plugin-opener": "^2.5.3",
@@ -32,11 +36,16 @@
     "zustand": "^5.0.12"
   },
   "devDependencies": {
+    "@tailwindcss/vite": "^4.2.2",
     "@tauri-apps/cli": "^2.10.1",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.2",
     "@types/node": "^22.14.0",
     "@types/ws": "^8.18.1",
     "@vitejs/plugin-react": "^5.0.0",
     "@vitest/coverage-v8": "^4.1.4",
+    "jsdom": "^27.0.1",
+    "tailwindcss": "^4.2.2",
     "tsx": "^4.21.0",
     "typescript": "~5.8.2",
     "vite": "^6.2.0",

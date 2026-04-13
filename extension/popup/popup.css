@@ -1,0 +1,346 @@
+/* Flovart Popup — Compact Extension Popup Styles */
+:root {
+  --bg: #0A0A0B;
+  --bg-card: #121214;
+  --border: #2A2A2E;
+  --text: #F0F0F2;
+  --text-dim: #71717A;
+  --accent: #DC2626;
+  --accent-hover: #EF4444;
+  --radius: 14px;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+body {
+  width: 320px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  overflow-x: hidden;
+  overflow-y: auto;
+}
+
+.popup-root {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 16px;
+  padding-bottom: 20px;
+}
+
+/* Header */
+.popup-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.popup-logo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.popup-title {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  background: linear-gradient(135deg, #DC2626, #F43F5E);
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+}
+
+.is-hidden {
+  display: none;
+}
+
+.popup-version {
+  font-size: 10px;
+  color: var(--text-dim);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  padding: 2px 8px;
+  border-radius: 20px;
+}
+
+/* CTA Button */
+.popup-cta {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  padding: 12px;
+  border: none;
+  border-radius: var(--radius);
+  background: linear-gradient(135deg, #DC2626, #9F1239);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  position: relative;
+  overflow: hidden;
+}
+
+.popup-cta::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, transparent 40%, rgba(255,255,255,0.15) 50%, transparent 60%);
+  transform: translateX(-100%);
+  transition: transform 0.6s ease;
+}
+
+.popup-cta:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 20px rgba(220, 38, 38, 0.4);
+}
+
+.popup-cta:hover::before {
+  transform: translateX(100%);
+}
+
+.popup-cta:active {
+  transform: scale(0.98);
+}
+
+/* Section */
+.popup-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.popup-section-title {
+  font-size: 11px;
+  color: var(--text-dim);
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.popup-actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.popup-action {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 14px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg-card);
+  color: var(--text);
+  font-size: 11px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.popup-action:hover {
+  border-color: var(--accent);
+  background: rgba(220, 38, 38, 0.08);
+  transform: translateY(-1px);
+}
+
+.popup-action:active {
+  transform: scale(0.97);
+}
+
+.popup-action svg {
+  color: var(--accent);
+}
+
+/* Full-width action button */
+.popup-action-full {
+  flex-direction: row;
+  width: 100%;
+  padding: 10px 14px;
+  gap: 8px;
+}
+
+/* API Key Status */
+.popup-key-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+
+.popup-key-indicator {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #71717A;
+  transition: background 0.3s;
+}
+
+.popup-key-indicator.active {
+  background: #10B981;
+}
+
+.popup-key-indicator.empty {
+  background: #F59E0B;
+}
+
+/* Key Setup Form */
+.popup-key-setup {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  animation: flovart-popup-slide 0.25s ease;
+}
+
+@keyframes flovart-popup-slide {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.popup-select {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 12px;
+  outline: none;
+  cursor: pointer;
+}
+
+.popup-select:focus {
+  border-color: var(--accent);
+}
+
+.popup-provider-hint,
+.popup-inline-note {
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--text-dim);
+}
+
+.popup-custom-base-url {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.popup-key-input-row {
+  display: flex;
+  gap: 6px;
+}
+
+.popup-input {
+  flex: 1;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg);
+  color: var(--text);
+  font-size: 12px;
+  outline: none;
+}
+
+.popup-input:focus {
+  border-color: var(--accent);
+}
+
+.popup-btn-save {
+  padding: 8px 14px;
+  border: none;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+  white-space: nowrap;
+}
+
+.popup-btn-save:hover {
+  background: var(--accent-hover);
+}
+
+.popup-btn-save:active {
+  transform: scale(0.96);
+}
+
+.popup-key-save-status {
+  font-size: 11px;
+  min-height: 16px;
+}
+
+.popup-key-save-status.success { color: #10B981; }
+.popup-key-save-status.info { color: #60A5FA; }
+.popup-key-save-status.error { color: #EF4444; }
+
+.popup-links {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.popup-link-card {
+  padding: 10px 8px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.01));
+  color: var(--text);
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.popup-link-card:hover {
+  border-color: rgba(220, 38, 38, 0.7);
+  background: rgba(220, 38, 38, 0.08);
+  transform: translateY(-1px);
+}
+
+.popup-link-card:active {
+  transform: scale(0.98);
+}
+
+/* Footer */
+.popup-footer {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-top: 4px;
+}
+
+.popup-status {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #10B981;
+  animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+.popup-footer span {
+  font-size: 10px;
+  color: var(--text-dim);
+}

@@ -2,7 +2,7 @@
 
 # 默认目标
 help:
-	@echo "MakingLovart Docker 管理命令"
+	@echo "Flovart Docker 管理命令"
 	@echo ""
 	@echo "使用方法: make [命令]"
 	@echo ""
